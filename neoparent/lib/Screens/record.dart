@@ -128,7 +128,7 @@ class _RecordPageState extends State<RecordPage> {
                 child: ElevatedButton.icon(
                   onPressed: _selectAudioFile,
                   icon: const Icon(Icons.folder_open),
-                  label: const Text('Select Audio File'),
+                  label: const Text('Select Audio'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFFF6B35),
                     foregroundColor: Colors.white,
