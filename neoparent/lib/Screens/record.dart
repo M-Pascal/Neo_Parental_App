@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
-import '../providers/audio_provider.dart';
 import '../providers/auth_provider.dart';
+import '../services/prediction_service.dart';
 import './main_navigation.dart';
 import './profile.dart';
 import './register.dart';
@@ -363,11 +363,8 @@ class _RecordPageState extends State<RecordPage> {
   void _uploadAudioFile() async {
     if (_selectedFileName == null || _selectedFilePath == null) return;
 
-    // Get audio provider and auth provider
-    final audioProvider = Provider.of<AudioProvider>(context, listen: false);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-    // Check if user is authenticated
     if (authProvider.currentUser == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -379,7 +376,6 @@ class _RecordPageState extends State<RecordPage> {
       return;
     }
 
-    // Show upload progress dialog
     if (!mounted) return;
     showDialog(
       context: context,
@@ -390,64 +386,31 @@ class _RecordPageState extends State<RecordPage> {
           children: [
             CircularProgressIndicator(),
             SizedBox(height: 16),
-            Text('Uploading audio file...'),
+            Text('Analyzing audio file...'),
           ],
         ),
       ),
     );
 
-    // Upload file with basic analysis data
-    final success = await audioProvider.uploadAudioFile(
-      filePath: _selectedFilePath!,
-      userId: authProvider.currentUser!.uid,
-      fileName: _selectedFileName,
-      analysisData: {
-        'analysis': 'Pending Analysis',
-        'confidence': 0,
-        'duration': 0,
-        'status': 'uploaded',
-        'notes': 'Uploaded via mobile app on ${DateTime.now().toString()}',
-      },
-    );
+    try {
+      final predictionService = PredictionService();
+      final prediction = await predictionService.predictAudio(
+        _selectedFilePath!,
+      );
 
-    // Close progress dialog
-    if (mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop();
 
-    if (success) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle, color: Colors.white),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text('$_selectedFileName uploaded successfully!'),
-                ),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 3),
-            action: SnackBarAction(
-              label: 'VIEW',
-              textColor: Colors.white,
-              onPressed: () {
-                // Navigate to history
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const HistoryPage()),
-                );
-              },
-            ),
-          ),
-        );
+        _showPredictionDialog(prediction);
 
         setState(() {
           _selectedFileName = null;
           _selectedFilePath = null;
         });
       }
-    } else {
+    } on PredictionException catch (e) {
+      if (mounted) Navigator.of(context).pop();
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -455,9 +418,25 @@ class _RecordPageState extends State<RecordPage> {
               children: [
                 const Icon(Icons.error, color: Colors.white),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: Text(audioProvider.errorMessage ?? 'Upload failed'),
-                ),
+                Expanded(child: Text(e.message)),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) Navigator.of(context).pop();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(child: Text('Error: ${e.toString()}')),
               ],
             ),
             backgroundColor: Colors.red,
@@ -468,39 +447,167 @@ class _RecordPageState extends State<RecordPage> {
     }
   }
 
-  Future<void> _analyzeSelectedFile() async {
-    if (_selectedFileName == null || _selectedFilePath == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select an audio file first'),
-          backgroundColor: Colors.red,
+  void _showPredictionDialog(PredictionResponse prediction) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        contentPadding: EdgeInsets.zero,
+        content: Container(
+          width: MediaQuery.of(context).size.width * 0.85,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: const LinearGradient(
+              colors: [Color(0xFFFF6B35), Color(0xFFD2691E)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    const Icon(
+                      Icons.check_circle,
+                      color: Colors.white,
+                      size: 60,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Analysis Complete',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(
+                    bottomLeft: Radius.circular(20),
+                    bottomRight: Radius.circular(20),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildResultRow(
+                      'Prediction',
+                      prediction.predictedLabel,
+                      Icons.baby_changing_station,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildResultRow(
+                      'Time',
+                      prediction.getFormattedTime(),
+                      Icons.access_time,
+                    ),
+                    const SizedBox(height: 20),
+                    const Divider(),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.lightbulb_outline,
+                          color: Colors.orange[700],
+                          size: 24,
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Recommendation',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt.',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.black54,
+                        height: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF6B35),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text(
+                          'OK',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
-      );
-      return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Analyzing $_selectedFileName...'),
-        backgroundColor: const Color(0xFFFF6B35),
-        duration: const Duration(seconds: 2),
       ),
     );
+  }
 
-    await Future.delayed(const Duration(seconds: 3));
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Analysis complete! Check the results in History.'),
-        backgroundColor: Colors.green,
-        duration: Duration(seconds: 3),
-      ),
+  Widget _buildResultRow(String label, String value, IconData icon) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFF6B35).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: const Color(0xFFFF6B35), size: 24),
+        ),
+        const SizedBox(width: 16),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Colors.black54,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 18,
+                color: Colors.black87,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
-
-    setState(() {
-      _selectedFileName = null;
-      _selectedFilePath = null;
-    });
   }
 
   Widget _buildHeaderSection() {
