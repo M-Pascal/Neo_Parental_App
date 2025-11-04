@@ -114,7 +114,16 @@ except Exception as e:
     raise
 
 # === Password hashing ===
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use argon2 instead of bcrypt to avoid the 72-byte limit
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+
+def hash_password(password: str) -> str:
+    """Hash password with argon2 (no length limitations)"""
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify password with argon2"""
+    return pwd_context.verify(plain_password, hashed_password)
 
 # === FastAPI app ===
 app = FastAPI(
@@ -149,12 +158,6 @@ class_labels = {
 }
 
 # === Helper Functions ===
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
-
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
@@ -762,3 +765,4 @@ async def general_exception_handler(_, exc: Exception):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, log_level="info")
+    
