@@ -69,20 +69,26 @@ class AuthProvider with ChangeNotifier {
   }
 
   /// Register new user with email and password
+  /// Does NOT auto-login - user must login after registration
   Future<bool> signUp({
     required String email,
     required String password,
     required String fullName,
+    String? phoneNumber,
+    String? address,
   }) async {
     _setLoading(true);
     _clearError();
 
     try {
       final normalizedEmail = email.trim().toLowerCase();
-      _currentUser = await _authService.signUpWithEmailAndPassword(
+      // Registration successful but don't set _currentUser
+      await _authService.signUpWithEmailAndPassword(
         email: normalizedEmail,
         password: password,
         fullName: fullName,
+        phoneNumber: phoneNumber,
+        address: address,
       );
       _setLoading(false);
       return true;

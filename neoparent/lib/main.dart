@@ -7,9 +7,14 @@ import 'providers/audio_provider.dart';
 import 'screens/auth_wrapper.dart';
 import 'utils/app_theme.dart';
 import 'utils/app_strings.dart';
+import 'config/api_config.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Print API configuration for debugging
+  ApiConfig.printConnectionInfo();
+
   runApp(const NeoParentalApp());
 }
 

@@ -19,13 +19,13 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
+  final _emailOrUsernameController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _agreeToTerms = false;
 
   @override
   void dispose() {
-    _emailController.dispose();
+    _emailOrUsernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -40,7 +40,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final authProvider = context.read<AuthProvider>();
     final success = await authProvider.signIn(
-      email: _emailController.text.trim(),
+      email: _emailOrUsernameController.text.trim(),
       password: _passwordController.text,
     );
 
@@ -217,18 +217,14 @@ class _LoginScreenState extends State<LoginScreen> {
       child: Column(
         children: [
           CustomTextField(
-            controller: _emailController,
-            labelText: AppStrings.email,
+            controller: _emailOrUsernameController,
+            labelText: 'Email or Username',
+            hintText: 'Enter your email or username',
             prefixIcon: Icons.email_outlined,
             keyboardType: TextInputType.emailAddress,
             validator: (value) {
               if (value == null || value.isEmpty) {
-                return 'Please enter your email';
-              }
-              if (!RegExp(
-                r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-              ).hasMatch(value)) {
-                return AppStrings.invalidEmail;
+                return 'Please enter your email or username';
               }
               return null;
             },

@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
-import '../services/user_profile_service.dart';
-import '../models/user_profile_model.dart';
 import '../utils/app_colors.dart';
 import '../utils/app_strings.dart';
 import '../widgets/custom_button.dart';
@@ -52,41 +50,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
         '${_firstNameController.text.trim()} ${_lastNameController.text.trim()}';
     final authProvider = context.read<AuthProvider>();
 
-    // Sign up the user
+    // Sign up the user (no auto-login)
     final success = await authProvider.signUp(
       email: _emailController.text.trim(),
       password: _passwordController.text,
       fullName: fullName,
+      phoneNumber: _phoneController.text.trim(),
+      address: _addressController.text.trim(),
     );
 
     if (!mounted) return;
 
-    if (success && authProvider.currentUser != null) {
-      try {
-        final userProfileService = UserProfileService();
-        final profile = UserProfile(
-          uid: authProvider.currentUser!.uid,
-          email: _emailController.text.trim(),
-          fullName: fullName,
-          phoneNumber: _phoneController.text.trim(),
-          address: _addressController.text.trim(),
-        );
-
-        await userProfileService.createUserProfile(profile);
-
-        if (mounted) {
-          showSnackBar(context, AppStrings.registrationSuccessful);
-          await Future.delayed(const Duration(seconds: 2));
-          if (mounted) Navigator.pop(context);
-        }
-      } catch (e) {
-        if (mounted) {
-          showSnackBar(
-            context,
-            'Account created but profile save failed: ${e.toString()}',
-            isError: true,
-          );
-        }
+    if (success) {
+      showSnackBar(
+        context,
+        'Registration successful! Please login to continue.',
+      );
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) {
+        // Navigate back to login screen
+        Navigator.pop(context);
       }
     } else {
       showSnackBar(

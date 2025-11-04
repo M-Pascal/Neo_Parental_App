@@ -641,6 +641,8 @@ class _RegisterPageState extends State<RegisterPage> {
     // Normalize email to avoid whitespace / case mismatches between register & login
     final email = _emailController.text.trim().toLowerCase();
     final password = _passwordController.text;
+    final phoneNumber = _phoneController.text.trim();
+    final address = _addressController.text.trim();
 
     setState(() {
       _isLoading = true;
@@ -649,27 +651,14 @@ class _RegisterPageState extends State<RegisterPage> {
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-      // Check if user already exists (optional in bypass mode)
-      bool userExists = await authProvider.checkUserExists(email);
-      if (userExists) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('User already exists. Please sign in instead.'),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-        return;
-      }
-
-      // Register user
+      // Register user with all details
       String fullName = '$firstName $lastName';
       final success = await authProvider.signUp(
         email: email,
         password: password,
         fullName: fullName,
+        phoneNumber: phoneNumber,
+        address: address,
       );
 
       if (success && mounted) {

@@ -13,6 +13,7 @@ class ChatPage extends StatefulWidget {
 class _ChatPageState extends State<ChatPage> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _messageController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = [];
 
   @override
@@ -47,6 +48,7 @@ class _ChatPageState extends State<ChatPage> {
               child: _messages.isEmpty
                   ? _buildEmptyState()
                   : ListView.builder(
+                      controller: _scrollController,
                       itemCount: _messages.length,
                       itemBuilder: (context, index) {
                         return _buildMessageBubble(_messages[index]);
@@ -159,6 +161,7 @@ class _ChatPageState extends State<ChatPage> {
         mainAxisAlignment: message.isBot
             ? MainAxisAlignment.start
             : MainAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (message.isBot) ...[
             CircleAvatar(
@@ -168,21 +171,57 @@ class _ChatPageState extends State<ChatPage> {
             const SizedBox(width: 8),
           ],
           Flexible(
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: message.isBot
-                    ? Colors.grey[100]
-                    : const Color(0xFFFF6B35),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                message.text,
-                style: TextStyle(
-                  color: message.isBot ? Colors.black87 : Colors.white,
-                  fontSize: 16,
+            child: Column(
+              crossAxisAlignment: message.isBot
+                  ? CrossAxisAlignment.start
+                  : CrossAxisAlignment.end,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: message.isBot
+                        ? Colors.grey[100]
+                        : const Color(0xFFFF6B35),
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(20),
+                      topRight: const Radius.circular(20),
+                      bottomLeft: Radius.circular(message.isBot ? 0 : 20),
+                      bottomRight: Radius.circular(message.isBot ? 20 : 0),
+                    ),
+                  ),
+                  child: Text(
+                    message.text,
+                    style: TextStyle(
+                      color: message.isBot ? Colors.black87 : Colors.white,
+                      fontSize: 15,
+                      height: 1.4,
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _formatTimestamp(message.timestamp),
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    ),
+                    if (!message.isBot) ...[
+                      const SizedBox(width: 4),
+                      Icon(
+                        message.isRead ? Icons.done_all : Icons.done,
+                        size: 14,
+                        color: message.isRead
+                            ? const Color(0xFF4FC3F7)
+                            : Colors.grey[600],
+                      ),
+                    ],
+                  ],
+                ),
+              ],
             ),
           ),
           if (!message.isBot) ...[
@@ -195,6 +234,19 @@ class _ChatPageState extends State<ChatPage> {
         ],
       ),
     );
+  }
+
+  String _formatTimestamp(DateTime timestamp) {
+    final now = DateTime.now();
+    final difference = now.difference(timestamp);
+
+    if (difference.inDays > 0) {
+      return '${timestamp.day}/${timestamp.month}/${timestamp.year}';
+    } else {
+      final hour = timestamp.hour.toString().padLeft(2, '0');
+      final minute = timestamp.minute.toString().padLeft(2, '0');
+      return '$hour:$minute';
+    }
   }
 
   Widget _buildMessageInput() {
@@ -284,13 +336,39 @@ class _ChatPageState extends State<ChatPage> {
           text: _messageController.text.trim(),
           isBot: false,
           timestamp: DateTime.now(),
+          isRead: false,
         ),
       );
     });
 
-    // Simulate bot response
-    _simulateBotResponse(_messageController.text.trim());
     _messageController.clear();
+    _scrollToBottom();
+
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+      setState(() {
+        _messages[_messages.length - 1] = ChatMessage(
+          text: _messages.last.text,
+          isBot: false,
+          timestamp: _messages.last.timestamp,
+          isRead: true,
+        );
+      });
+    });
+
+    _simulateBotResponse(_messages.last.text);
+  }
+
+  void _scrollToBottom() {
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   void _simulateBotResponse(String userMessage) {
@@ -301,9 +379,16 @@ class _ChatPageState extends State<ChatPage> {
 
       setState(() {
         _messages.add(
-          ChatMessage(text: response, isBot: true, timestamp: DateTime.now()),
+          ChatMessage(
+            text: response,
+            isBot: true,
+            timestamp: DateTime.now(),
+            isRead: true,
+          ),
         );
       });
+
+      _scrollToBottom();
     });
   }
 
@@ -447,19 +532,21 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void dispose() {
     _messageController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 }
 
-// Data model for chat messages
 class ChatMessage {
   final String text;
   final bool isBot;
   final DateTime timestamp;
+  final bool isRead;
 
   ChatMessage({
     required this.text,
     required this.isBot,
     required this.timestamp,
+    this.isRead = false,
   });
 }
