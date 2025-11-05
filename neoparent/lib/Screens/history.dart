@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../providers/auth_provider.dart';
 import '../services/history_service.dart';
 import '../models/prediction_history_model.dart';
@@ -18,14 +19,37 @@ class HistoryPage extends StatefulWidget {
 class _HistoryPageState extends State<HistoryPage> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final HistoryService _historyService = HistoryService();
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
   List<PredictionHistoryModel> _predictions = [];
   bool _isLoading = true;
   String? _errorMessage;
+  String? _currentlyPlayingId;
+  bool _isPlaying = false;
 
   @override
   void initState() {
     super.initState();
     _loadPredictions();
+    _setupAudioPlayerListeners();
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
+  }
+
+  void _setupAudioPlayerListeners() {
+    _audioPlayer.onPlayerStateChanged.listen((PlayerState state) {
+      setState(() {
+        _isPlaying = state == PlayerState.playing;
+        if (state == PlayerState.completed) {
+          _currentlyPlayingId = null;
+          _isPlaying = false;
+        }
+      });
+    });
   }
 
   Future<void> _loadPredictions() async {
@@ -312,11 +336,27 @@ class _HistoryPageState extends State<HistoryPage> {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () => _playRecording(item),
-                  icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                  label: const Text('Play'),
+                  icon: Icon(
+                    _currentlyPlayingId == item.id && _isPlaying
+                        ? Icons.pause_rounded
+                        : Icons.play_arrow_rounded,
+                    size: 18,
+                  ),
+                  label: Text(
+                    _currentlyPlayingId == item.id && _isPlaying
+                        ? 'Pause'
+                        : 'Play',
+                  ),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFFFF6B35),
-                    side: const BorderSide(color: Color(0xFFFF6B35)),
+                    foregroundColor:
+                        _currentlyPlayingId == item.id && _isPlaying
+                        ? Colors.orange
+                        : const Color(0xFFFF6B35),
+                    side: BorderSide(
+                      color: _currentlyPlayingId == item.id && _isPlaying
+                          ? Colors.orange
+                          : const Color(0xFFFF6B35),
+                    ),
                   ),
                 ),
               ),
@@ -476,15 +516,120 @@ class _HistoryPageState extends State<HistoryPage> {
     }
   }
 
-  void _playRecording(PredictionHistoryModel item) {
-    // TODO: Implement audio playback from Cloudinary URL
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Playing: ${item.audioFilename}'),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 2),
-      ),
-    );
+  void _playRecording(PredictionHistoryModel item) async {
+    try {
+      // If currently playing this item, pause it
+      if (_currentlyPlayingId == item.id && _isPlaying) {
+        await _audioPlayer.pause();
+        setState(() {
+          _isPlaying = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.pause, color: Colors.white),
+                SizedBox(width: 12),
+                Text('Audio paused'),
+              ],
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 1),
+          ),
+        );
+        return;
+      }
+
+      // If currently playing this item but paused, resume it
+      if (_currentlyPlayingId == item.id && !_isPlaying) {
+        await _audioPlayer.resume();
+        setState(() {
+          _isPlaying = true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.play_arrow, color: Colors.white),
+                SizedBox(width: 12),
+                Text('Audio resumed'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 1),
+          ),
+        );
+        return;
+      }
+
+      // Stop any currently playing audio
+      await _audioPlayer.stop();
+
+      // Check if audio URL exists
+      if (item.audioUrl.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.error, color: Colors.white),
+                  SizedBox(width: 12),
+                  Text('Audio URL not available'),
+                ],
+              ),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        return;
+      }
+
+      // Play the new audio from URL
+      setState(() {
+        _currentlyPlayingId = item.id;
+        _isPlaying = true;
+      });
+
+      await _audioPlayer.play(UrlSource(item.audioUrl));
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.play_arrow, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(child: Text('Playing: ${item.audioFilename}')),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _currentlyPlayingId = null;
+        _isPlaying = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(child: Text('Failed to play audio: ${e.toString()}')),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
   void _showDetailsDialog(PredictionHistoryModel item) {
