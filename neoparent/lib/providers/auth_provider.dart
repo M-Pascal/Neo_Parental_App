@@ -22,6 +22,9 @@ class AuthProvider with ChangeNotifier {
   /// Check if user is authenticated
   bool get isAuthenticated => _currentUser != null;
 
+  /// Get access token for API requests
+  String? get accessToken => _authService.accessToken;
+
   /// Initialize auth state listener
   AuthProvider() {
     _initAuthListener();

@@ -1,47 +1,93 @@
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../config/api_config.dart';
 
 class PredictionService {
-  static const String baseUrl = 'https://neoparental-fast-api.onrender.com';
+  // Use the local API configuration instead of hardcoded Render URL
+  static String get baseUrl => ApiConfig.baseUrl;
 
-  Future<PredictionResponse> predictAudio(String filePath) async {
+  /// Predict audio using the trained ML model via API
+  /// Requires authentication token
+  Future<PredictionResponse> predictAudio(
+    String filePath, {
+    String? authToken,
+  }) async {
     try {
+      print('Starting audio prediction...');
+      print('   API URL: $baseUrl/predict');
+      print('   File: $filePath');
+      print('   Auth token: ${authToken != null ? "Present" : "Missing"}');
+
       var request = http.MultipartRequest(
         'POST',
         Uri.parse('$baseUrl/predict'),
       );
 
+      // Add authentication header if token is provided
+      if (authToken != null) {
+        request.headers['Authorization'] = 'Bearer $authToken';
+      }
+
+      // Add the audio file
       var file = await http.MultipartFile.fromPath('file', filePath);
       request.files.add(file);
 
-      print('Sending request to: $baseUrl/predict');
-      print('File: $filePath');
+      print(' Sending request to server...');
 
-      var streamedResponse = await request.send();
+      var streamedResponse = await request.send().timeout(
+        const Duration(seconds: 60),
+        onTimeout: () {
+          throw PredictionException(
+            'Request timeout. The server took too long to respond.',
+          );
+        },
+      );
+
       var response = await http.Response.fromStream(streamedResponse);
 
-      print('Response status: ${response.statusCode}');
-      print('Response body: ${response.body}');
+      print(' Response status: ${response.statusCode}');
+      print(' Response body: ${response.body}');
 
       if (response.statusCode == 200) {
         final jsonData = json.decode(response.body);
+        print(' Prediction successful!');
+        print('   Predicted label: ${jsonData['predicted_label']}');
+        print('   Confidence: ${jsonData['confidence']}%');
         return PredictionResponse.fromJson(jsonData);
-      } else {
+      } else if (response.statusCode == 401) {
         throw PredictionException(
-          'Prediction failed: ${response.statusCode} - ${response.body}',
+          'Authentication required. Please log in again.',
         );
+      } else if (response.statusCode == 503) {
+        throw PredictionException(
+          'Model not available. Please try again later.',
+        );
+      } else {
+        final errorBody = response.body;
+        try {
+          final errorJson = json.decode(errorBody);
+          final errorMessage =
+              errorJson['detail'] ?? errorJson['error'] ?? 'Unknown error';
+          throw PredictionException('Prediction failed: $errorMessage');
+        } catch (e) {
+          throw PredictionException(
+            'Prediction failed: ${response.statusCode} - $errorBody',
+          );
+        }
       }
     } on SocketException catch (e) {
-      print('Socket exception: $e');
+      print(' Socket exception: $e');
       throw PredictionException(
-        'Network error. Please check your internet connection.',
+        'Network error. Please check your internet connection and ensure the API server is running.',
       );
     } on FormatException catch (e) {
-      print('Format exception: $e');
+      print(' Format exception: $e');
       throw PredictionException('Invalid response format from server.');
+    } on PredictionException {
+      rethrow;
     } catch (e) {
-      print('General exception: $e');
+      print(' General exception: $e');
       throw PredictionException('Prediction failed: ${e.toString()}');
     }
   }

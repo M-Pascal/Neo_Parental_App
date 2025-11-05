@@ -18,9 +18,33 @@ class RecordPage extends StatefulWidget {
 
 class _RecordPageState extends State<RecordPage> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  bool _isAutoDetectActive = false;
+  bool _isAutoDetectActive = true; // Auto-detect ON by default
+  bool _isUploading = false; // Track upload state
   String? _selectedFileName;
   String? _selectedFilePath;
+
+  @override
+  void initState() {
+    super.initState();
+    // Auto-detect is enabled by default
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_isAutoDetectActive) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.hearing, color: Colors.white),
+                SizedBox(width: 12),
+                Text('Auto sound detection is active'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -142,13 +166,24 @@ class _RecordPageState extends State<RecordPage> {
               const SizedBox(width: 12),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: _selectedFileName != null
+                  onPressed: _selectedFileName != null && !_isUploading
                       ? _uploadAudioFile
                       : null,
-                  icon: const Icon(Icons.cloud_upload),
-                  label: const Text('Upload'),
+                  icon: _isUploading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        )
+                      : const Icon(Icons.cloud_upload),
+                  label: Text(_isUploading ? 'Uploading...' : 'Upload'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _selectedFileName != null
+                    backgroundColor: _selectedFileName != null && !_isUploading
                         ? Colors.green
                         : Colors.grey,
                     foregroundColor: Colors.white,
@@ -265,24 +300,37 @@ class _RecordPageState extends State<RecordPage> {
               ),
               Switch(
                 value: _isAutoDetectActive,
-                onChanged: (value) {
-                  setState(() {
-                    _isAutoDetectActive = value;
-                  });
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        _isAutoDetectActive
-                            ? 'Auto detection activated!'
-                            : 'Auto detection deactivated!',
-                      ),
-                      backgroundColor: _isAutoDetectActive
-                          ? Colors.green
-                          : Colors.grey,
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                },
+                onChanged: _isUploading
+                    ? null // Disable switch during upload
+                    : (value) {
+                        setState(() {
+                          _isAutoDetectActive = value;
+                        });
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Row(
+                              children: [
+                                Icon(
+                                  _isAutoDetectActive
+                                      ? Icons.hearing
+                                      : Icons.hearing_disabled,
+                                  color: Colors.white,
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  _isAutoDetectActive
+                                      ? 'Auto detection activated!'
+                                      : 'Auto detection deactivated!',
+                                ),
+                              ],
+                            ),
+                            backgroundColor: _isAutoDetectActive
+                                ? Colors.green
+                                : Colors.grey,
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
                 activeColor: Colors.green,
                 activeTrackColor: Colors.green.withOpacity(0.3),
               ),
@@ -304,6 +352,35 @@ class _RecordPageState extends State<RecordPage> {
                     child: Text(
                       'Auto detection is active. The app will listen for baby sounds in the background.',
                       style: TextStyle(fontSize: 14, color: Colors.blue),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (_isUploading) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.orange),
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Processing audio... Auto detection temporarily disabled.',
+                      style: TextStyle(fontSize: 14, color: Colors.orange),
                     ),
                   ),
                 ],
@@ -376,7 +453,20 @@ class _RecordPageState extends State<RecordPage> {
       return;
     }
 
+    // Store the previous auto-detect state
+    final wasAutoDetectActive = _isAutoDetectActive;
+
+    // Disable auto-detect during upload
+    setState(() {
+      _isUploading = true;
+      if (_isAutoDetectActive) {
+        _isAutoDetectActive = false;
+      }
+    });
+
     if (!mounted) return;
+
+    // Show loading dialog
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -386,7 +476,12 @@ class _RecordPageState extends State<RecordPage> {
           children: [
             CircularProgressIndicator(),
             SizedBox(height: 16),
-            Text('Analyzing audio file...'),
+            Text('Analyzing audio with ML model...'),
+            SizedBox(height: 8),
+            Text(
+              'This may take a few seconds',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
           ],
         ),
       ),
@@ -394,22 +489,44 @@ class _RecordPageState extends State<RecordPage> {
 
     try {
       final predictionService = PredictionService();
+
+      // Get the authentication token from auth provider
+      final authToken = authProvider.accessToken;
+
+      print('🔐 Using auth token: ${authToken != null ? "Yes" : "No"}');
+
+      // Call the API with the trained model
       final prediction = await predictionService.predictAudio(
         _selectedFilePath!,
+        authToken: authToken,
       );
 
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop(); // Close loading dialog
 
       if (mounted) {
-        _showPredictionDialog(prediction);
+        // Show prediction result
+        _showPredictionDialog(prediction, wasAutoDetectActive);
 
-        setState(() {
-          _selectedFileName = null;
-          _selectedFilePath = null;
+        // Clear the file selection AFTER showing dialog
+        // This ensures the dialog shows immediately
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (mounted) {
+            setState(() {
+              _selectedFileName = null;
+              _selectedFilePath = null;
+              _isUploading = false;
+            });
+          }
         });
       }
     } on PredictionException catch (e) {
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop(); // Close loading dialog
+
+      setState(() {
+        _isUploading = false;
+        // Restore auto-detect state
+        _isAutoDetectActive = wasAutoDetectActive;
+      });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -427,7 +544,13 @@ class _RecordPageState extends State<RecordPage> {
         );
       }
     } catch (e) {
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop(); // Close loading dialog
+
+      setState(() {
+        _isUploading = false;
+        // Restore auto-detect state
+        _isAutoDetectActive = wasAutoDetectActive;
+      });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -447,129 +570,199 @@ class _RecordPageState extends State<RecordPage> {
     }
   }
 
-  void _showPredictionDialog(PredictionResponse prediction) {
+  void _showPredictionDialog(
+    PredictionResponse prediction,
+    bool restoreAutoDetect,
+  ) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        contentPadding: EdgeInsets.zero,
-        content: Container(
-          width: MediaQuery.of(context).size.width * 0.85,
-          decoration: BoxDecoration(
+      barrierDismissible: false, // Prevent dismissing by tapping outside
+      builder: (context) => WillPopScope(
+        onWillPop: () async => false, // Prevent back button dismiss
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
-            gradient: const LinearGradient(
-              colors: [Color(0xFFFF6B35), Color(0xFFD2691E)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  children: [
-                    const Icon(
-                      Icons.check_circle,
-                      color: Colors.white,
-                      size: 60,
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Analysis Complete',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
+          contentPadding: EdgeInsets.zero,
+          content: Container(
+            width: MediaQuery.of(context).size.width * 0.85,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              gradient: const LinearGradient(
+                colors: [Color(0xFFFF6B35), Color(0xFFD2691E)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.only(
-                    bottomLeft: Radius.circular(20),
-                    bottomRight: Radius.circular(20),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.check_circle,
+                        color: Colors.white,
+                        size: 60,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Analysis Complete',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'AI Model Prediction',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 14,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildResultRow(
-                      'Prediction',
-                      prediction.predictedLabel,
-                      Icons.baby_changing_station,
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      bottomLeft: Radius.circular(20),
+                      bottomRight: Radius.circular(20),
                     ),
-                    const SizedBox(height: 16),
-                    _buildResultRow(
-                      'Time',
-                      prediction.getFormattedTime(),
-                      Icons.access_time,
-                    ),
-                    const SizedBox(height: 20),
-                    const Divider(),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.lightbulb_outline,
-                          color: Colors.orange[700],
-                          size: 24,
-                        ),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Recommendation',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt.',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.black54,
-                        height: 1.5,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildResultRow(
+                        'Baby Needs',
+                        prediction.predictedLabel,
+                        Icons.baby_changing_station,
                       ),
-                    ),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFF6B35),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                      const SizedBox(height: 16),
+                      _buildResultRow(
+                        'Confidence',
+                        '${prediction.confidence}%',
+                        Icons.analytics,
+                      ),
+                      const SizedBox(height: 16),
+                      _buildResultRow(
+                        'Time',
+                        prediction.getFormattedTime(),
+                        Icons.access_time,
+                      ),
+                      const SizedBox(height: 16),
+                      _buildResultRow(
+                        'Processing',
+                        prediction.getFormattedProcessingTime(),
+                        Icons.speed,
+                      ),
+                      const SizedBox(height: 20),
+                      const Divider(),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.lightbulb_outline,
+                            color: Colors.orange[700],
+                            size: 24,
                           ),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'AI Recommendation',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _getRecommendation(prediction.predictedLabel),
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Colors.black54,
+                          height: 1.5,
                         ),
-                        child: const Text(
-                          'OK',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                            // Restore auto-detect state after dialog closes
+                            if (restoreAutoDetect) {
+                              setState(() {
+                                _isAutoDetectActive = true;
+                              });
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Row(
+                                    children: [
+                                      Icon(Icons.hearing, color: Colors.white),
+                                      SizedBox(width: 12),
+                                      Text('Auto detection re-activated'),
+                                    ],
+                                  ),
+                                  backgroundColor: Colors.green,
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                            }
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFFF6B35),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text(
+                            'OK',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
     );
+  }
+
+  String _getRecommendation(String predictedLabel) {
+    switch (predictedLabel.toLowerCase()) {
+      case 'hungry':
+        return 'Your baby might be hungry. Try feeding them or offering a bottle/breast.';
+      case 'belly_pain':
+        return 'Your baby may have belly discomfort. Try gentle tummy massage, burping, or bicycle leg movements.';
+      case 'burping':
+        return 'Your baby needs to burp. Hold them upright and gently pat their back.';
+      case 'discomfort':
+        return 'Your baby seems uncomfortable. Check their diaper, temperature, and clothing. Comfort them with gentle rocking.';
+      case 'tired/sleepy':
+      case 'tired':
+      case 'sleepy':
+        return 'Your baby is tired and needs rest. Create a calm environment and help them settle down for sleep.';
+      default:
+        return 'Monitor your baby\'s condition. If crying persists or you\'re concerned, consult your pediatrician.';
+    }
   }
 
   Widget _buildResultRow(String label, String value, IconData icon) {
