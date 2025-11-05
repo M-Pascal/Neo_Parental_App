@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
+import '../providers/chat_provider.dart';
 import './profile.dart';
 import './register.dart';
 import './main_navigation.dart';
@@ -14,24 +17,18 @@ class _ChatPageState extends State<ChatPage> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  final List<ChatMessage> _messages = [];
 
   @override
   void initState() {
     super.initState();
-    // Add a welcome message
-    _messages.add(
-      ChatMessage(
-        text:
-            "Hello! I'm your NeoParental assistant. How can I help you with your baby today?",
-        isBot: true,
-        timestamp: DateTime.now(),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final chatProvider = Provider.of<ChatProvider>(context);
+    final messages = chatProvider.messages;
+    final isTyping = chatProvider.isTyping;
+
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: Colors.white,
@@ -45,13 +42,16 @@ class _ChatPageState extends State<ChatPage> {
           Expanded(
             child: Container(
               padding: const EdgeInsets.all(16),
-              child: _messages.isEmpty
+              child: messages.isEmpty
                   ? _buildEmptyState()
                   : ListView.builder(
                       controller: _scrollController,
-                      itemCount: _messages.length,
+                      itemCount: messages.length + (isTyping ? 1 : 0),
                       itemBuilder: (context, index) {
-                        return _buildMessageBubble(_messages[index]);
+                        if (index == messages.length && isTyping) {
+                          return _buildTypingIndicator();
+                        }
+                        return _buildMessageBubble(messages[index]);
                       },
                     ),
             ),
@@ -212,9 +212,9 @@ class _ChatPageState extends State<ChatPage> {
                     if (!message.isBot) ...[
                       const SizedBox(width: 4),
                       Icon(
-                        message.isRead ? Icons.done_all : Icons.done,
+                        Icons.done_all,
                         size: 14,
-                        color: message.isRead
+                        color: message.isDelivered
                             ? const Color(0xFF4FC3F7)
                             : Colors.grey[600],
                       ),
@@ -233,6 +233,72 @@ class _ChatPageState extends State<ChatPage> {
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildTypingIndicator() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          CircleAvatar(
+            backgroundColor: const Color(0xFFFF6B35),
+            child: const Icon(Icons.smart_toy, color: Colors.white, size: 20),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
+                bottomRight: Radius.circular(20),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildDot(0),
+                const SizedBox(width: 4),
+                _buildDot(1),
+                const SizedBox(width: 4),
+                _buildDot(2),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDot(int index) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 600),
+      builder: (context, value, child) {
+        final delay = index * 0.2;
+        final animValue = ((value + delay) % 1.0);
+        final opacity = (animValue < 0.5)
+            ? animValue * 2
+            : (1.0 - animValue) * 2;
+
+        return Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: Colors.grey[400]!.withOpacity(0.3 + (opacity * 0.7)),
+            shape: BoxShape.circle,
+          ),
+        );
+      },
+      onEnd: () {
+        if (mounted) {
+          setState(() {}); // Restart animation
+        }
+      },
     );
   }
 
@@ -327,36 +393,32 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  void _sendMessage() {
+  void _sendMessage() async {
     if (_messageController.text.trim().isEmpty) return;
 
-    setState(() {
-      _messages.add(
-        ChatMessage(
-          text: _messageController.text.trim(),
-          isBot: false,
-          timestamp: DateTime.now(),
-          isRead: false,
-        ),
-      );
-    });
+    final userMessage = _messageController.text.trim();
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    final authToken = authProvider.accessToken;
 
     _messageController.clear();
-    _scrollToBottom();
 
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (!mounted) return;
-      setState(() {
-        _messages[_messages.length - 1] = ChatMessage(
-          text: _messages.last.text,
-          isBot: false,
-          timestamp: _messages.last.timestamp,
-          isRead: true,
-        );
-      });
-    });
+    try {
+      // Send message through ChatProvider (handles all state updates)
+      await chatProvider.sendMessage(userMessage, authToken);
 
-    _simulateBotResponse(_messages.last.text);
+      _scrollToBottom();
+    } catch (e) {
+      _scrollToBottom();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   void _scrollToBottom() {
@@ -369,43 +431,6 @@ class _ChatPageState extends State<ChatPage> {
         );
       }
     });
-  }
-
-  void _simulateBotResponse(String userMessage) {
-    Future.delayed(const Duration(seconds: 1), () {
-      if (!mounted) return;
-
-      String response = _generateBotResponse(userMessage);
-
-      setState(() {
-        _messages.add(
-          ChatMessage(
-            text: response,
-            isBot: true,
-            timestamp: DateTime.now(),
-            isRead: true,
-          ),
-        );
-      });
-
-      _scrollToBottom();
-    });
-  }
-
-  String _generateBotResponse(String userMessage) {
-    final message = userMessage.toLowerCase();
-
-    if (message.contains('cry') || message.contains('crying')) {
-      return "Crying can indicate different needs. Try the cry analysis feature in the Audio section to understand what your baby might need - hunger, tiredness, discomfort, or pain.";
-    } else if (message.contains('feed') || message.contains('hungry')) {
-      return "For feeding, newborns typically eat every 2-3 hours. Watch for hunger cues like lip smacking, rooting, or putting hands to mouth.";
-    } else if (message.contains('sleep') || message.contains('tired')) {
-      return "Sleep patterns vary by age. Newborns sleep 14-17 hours daily. Create a calm environment with dim lights and soft sounds for better sleep.";
-    } else if (message.contains('help') || message.contains('advice')) {
-      return "I'm here to help! You can ask me about feeding, sleep, development milestones, or use the audio analysis feature to understand your baby's cries.";
-    } else {
-      return "That's a great question! While I can provide general guidance, always consult your pediatrician for specific medical concerns. Feel free to use our cry analysis feature for real-time insights.";
-    }
   }
 
   Widget _buildSideDrawer() {
@@ -514,7 +539,23 @@ class _ChatPageState extends State<ChatPage> {
             ),
             TextButton(
               child: const Text('Logout'),
-              onPressed: () {
+              onPressed: () async {
+                // Clear chat messages on logout
+                final chatProvider = Provider.of<ChatProvider>(
+                  context,
+                  listen: false,
+                );
+                chatProvider.clearMessages();
+
+                // Logout from auth
+                final authProvider = Provider.of<AuthProvider>(
+                  context,
+                  listen: false,
+                );
+                await authProvider.signOut();
+
+                if (!mounted) return;
+
                 Navigator.of(context).pop();
                 Navigator.pushAndRemoveUntil(
                   context,
@@ -535,18 +576,4 @@ class _ChatPageState extends State<ChatPage> {
     _scrollController.dispose();
     super.dispose();
   }
-}
-
-class ChatMessage {
-  final String text;
-  final bool isBot;
-  final DateTime timestamp;
-  final bool isRead;
-
-  ChatMessage({
-    required this.text,
-    required this.isBot,
-    required this.timestamp,
-    this.isRead = false,
-  });
 }

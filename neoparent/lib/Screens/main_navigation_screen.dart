@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/navigation_provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/chat_provider.dart';
 import '../utils/app_colors.dart';
 import '../utils/app_strings.dart';
 import '../widgets/common_widgets.dart';
@@ -256,6 +257,9 @@ class MainNavigationScreen extends StatelessWidget {
                         'Are you sure you want to logout?',
                       );
                       if (confirmed && context.mounted) {
+                        // Clear chat messages on logout
+                        context.read<ChatProvider>().clearMessages();
+
                         await context.read<AuthProvider>().signOut();
                         if (context.mounted) {
                           Navigator.pushAndRemoveUntil(

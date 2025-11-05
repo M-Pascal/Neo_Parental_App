@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../providers/auth_provider.dart';
+import '../providers/chat_provider.dart';
 import '../services/history_service.dart';
 import '../models/prediction_history_model.dart';
 import './main_navigation.dart';
@@ -950,7 +951,23 @@ class _HistoryPageState extends State<HistoryPage> {
             ),
             TextButton(
               child: const Text('Logout'),
-              onPressed: () {
+              onPressed: () async {
+                // Clear chat messages on logout
+                final chatProvider = Provider.of<ChatProvider>(
+                  context,
+                  listen: false,
+                );
+                chatProvider.clearMessages();
+
+                // Logout from auth
+                final authProvider = Provider.of<AuthProvider>(
+                  context,
+                  listen: false,
+                );
+                await authProvider.signOut();
+
+                if (!mounted) return;
+
                 Navigator.of(context).pop();
                 Navigator.pushAndRemoveUntil(
                   context,

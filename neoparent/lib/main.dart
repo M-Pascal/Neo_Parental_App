@@ -4,6 +4,7 @@ import 'providers/auth_provider.dart';
 import 'providers/navigation_provider.dart';
 import 'providers/data_provider.dart';
 import 'providers/audio_provider.dart';
+import 'providers/chat_provider.dart';
 import 'screens/auth_wrapper.dart';
 import 'utils/app_theme.dart';
 import 'utils/app_strings.dart';
@@ -33,6 +34,9 @@ class NeoParentalApp extends StatelessWidget {
 
         // Audio provider - manages audio uploads and history
         ChangeNotifierProvider(create: (_) => AudioProvider()),
+
+        // Chat provider - manages chat messages across the app
+        ChangeNotifierProvider(create: (_) => ChatProvider()),
 
         // History provider - manages baby cry analysis history
         ChangeNotifierProvider(

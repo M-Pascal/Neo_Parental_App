@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/chat_provider.dart';
 import '../services/prediction_service.dart';
 import './main_navigation.dart';
 import './profile.dart';
@@ -1065,7 +1066,23 @@ class _RecordPageState extends State<RecordPage> {
               child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
             ),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
+                // Clear chat messages on logout
+                final chatProvider = Provider.of<ChatProvider>(
+                  context,
+                  listen: false,
+                );
+                chatProvider.clearMessages();
+
+                // Logout from auth
+                final authProvider = Provider.of<AuthProvider>(
+                  context,
+                  listen: false,
+                );
+                await authProvider.signOut();
+
+                if (!mounted) return;
+
                 Navigator.of(context).pop();
                 Navigator.pushReplacement(
                   context,

@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
+import '../providers/chat_provider.dart';
 import './register.dart';
 import './record.dart';
 import './history.dart';
@@ -249,7 +252,23 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
             ),
             TextButton(
               child: const Text('Logout'),
-              onPressed: () {
+              onPressed: () async {
+                // Clear chat messages on logout
+                final chatProvider = Provider.of<ChatProvider>(
+                  context,
+                  listen: false,
+                );
+                chatProvider.clearMessages();
+
+                // Logout from auth
+                final authProvider = Provider.of<AuthProvider>(
+                  context,
+                  listen: false,
+                );
+                await authProvider.signOut();
+
+                if (!mounted) return;
+
                 Navigator.of(context).pop();
                 Navigator.pushAndRemoveUntil(
                   context,
