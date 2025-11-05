@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
-import '../services/user_profile_service.dart';
-import '../models/user_profile_model.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -12,16 +10,14 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  final UserProfileService _profileService = UserProfileService();
-
   // Text controllers for form fields
-  final TextEditingController _fullNameController = TextEditingController();
+  final TextEditingController _firstNameController = TextEditingController();
+  final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _childDobController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
 
-  bool _isLoading = true;
+  bool _isLoading = false;
   bool _isEditing = false;
 
   @override
@@ -32,83 +28,41 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   void dispose() {
-    _fullNameController.dispose();
+    _firstNameController.dispose();
+    _lastNameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
-    _childDobController.dispose();
     _addressController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadUserProfile() async {
+  void _loadUserProfile() {
     final authProvider = context.read<AuthProvider>();
-    if (authProvider.currentUser == null) {
-      setState(() => _isLoading = false);
-      return;
-    }
+    final user = authProvider.currentUser;
 
-    try {
-      final profile = await _profileService.getUserProfile(
-        authProvider.currentUser!.uid,
-      );
-
-      if (profile != null && mounted) {
-        setState(() {
-          _fullNameController.text = profile.fullName;
-          _emailController.text = profile.email;
-          _phoneController.text = profile.phoneNumber ?? '';
-          _addressController.text = profile.address ?? '';
-          _childDobController.text = profile.childDateOfBirth ?? '';
-          _isLoading = false;
-        });
-      } else {
-        setState(() => _isLoading = false);
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to load profile: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+    if (user != null) {
+      setState(() {
+        _firstNameController.text = user.firstName ?? '';
+        _lastNameController.text = user.lastName ?? '';
+        _emailController.text = user.email;
+        _phoneController.text = user.telephone ?? '';
+        _addressController.text = user.address ?? '';
+      });
     }
   }
 
   Future<void> _saveProfile() async {
-    final authProvider = context.read<AuthProvider>();
-    if (authProvider.currentUser == null) return;
-
-    try {
-      await _profileService.updateUserProfile(authProvider.currentUser!.uid, {
-        'fullName': _fullNameController.text.trim(),
-        'phoneNumber': _phoneController.text.trim(),
-        'address': _addressController.text.trim(),
-        'childDateOfBirth': _childDobController.text.trim(),
-      });
-
-      if (mounted) {
-        setState(() => _isEditing = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Profile saved successfully!'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to save profile: ${e.toString()}'),
-            backgroundColor: Colors.red,
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
+    // TODO: Implement profile update API endpoint
+    // For now, just show a message
+    if (mounted) {
+      setState(() => _isEditing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Profile update feature coming soon!'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 2),
+        ),
+      );
     }
   }
 
@@ -194,27 +148,52 @@ class _ProfilePageState extends State<ProfilePage> {
 
                   const SizedBox(height: 10),
 
-                  // Profile picture placeholder
-                  Stack(
-                    children: [
-                      Container(
-                        width: 120,
-                        height: 120,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 3),
-                        ),
-                        child: const Icon(
-                          Icons.person,
-                          size: 70,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
+                  // Profile picture with user initials
+                  Consumer<AuthProvider>(
+                    builder: (context, authProvider, _) {
+                      final user = authProvider.currentUser;
+                      final firstName = user?.firstName ?? '';
+                      final lastName = user?.lastName ?? '';
+
+                      // Get initials (first letter of first and last name)
+                      String initials = '';
+                      if (firstName.isNotEmpty) {
+                        initials += firstName[0].toUpperCase();
+                      }
+                      if (lastName.isNotEmpty) {
+                        initials += lastName[0].toUpperCase();
+                      }
+                      if (initials.isEmpty) {
+                        initials = 'U'; // Default to 'U' for User
+                      }
+
+                      return Stack(
+                        children: [
+                          Container(
+                            width: 120,
+                            height: 120,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 3),
+                            ),
+                            child: Center(
+                              child: Text(
+                                initials,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 48,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
 
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 20),
 
                   // Edit and Cancel buttons
                   Row(
@@ -297,13 +276,31 @@ class _ProfilePageState extends State<ProfilePage> {
                 children: [
                   const SizedBox(height: 10),
 
-                  // Full Name Field
-                  _buildFormField(
-                    controller: _fullNameController,
-                    label: 'Full Name',
-                    icon: Icons.person_outline,
-                    hintText: 'Enter your full name',
-                    enabled: _isEditing,
+                  // First Name and Last Name side by side
+                  Row(
+                    children: [
+                      // First Name Field
+                      Expanded(
+                        child: _buildFormField(
+                          controller: _firstNameController,
+                          label: 'First Name',
+                          icon: Icons.person_outline,
+                          hintText: 'First name',
+                          enabled: _isEditing,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Last Name Field
+                      Expanded(
+                        child: _buildFormField(
+                          controller: _lastNameController,
+                          label: 'Last Name',
+                          icon: Icons.person_outline,
+                          hintText: 'Last name',
+                          enabled: _isEditing,
+                        ),
+                      ),
+                    ],
                   ),
 
                   const SizedBox(height: 20),
@@ -327,17 +324,6 @@ class _ProfilePageState extends State<ProfilePage> {
                     icon: Icons.phone_outlined,
                     hintText: 'Enter your phone number',
                     keyboardType: TextInputType.phone,
-                    enabled: _isEditing,
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // Child Date of Birth Field
-                  _buildDateField(
-                    controller: _childDobController,
-                    label: 'Child Date of Birth',
-                    icon: Icons.cake_outlined,
-                    hintText: 'Select child\'s date of birth',
                     enabled: _isEditing,
                   ),
 
@@ -418,97 +404,6 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
       ],
     );
-  }
-
-  Widget _buildDateField({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    required String hintText,
-    bool enabled = true,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: Colors.black87,
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextFormField(
-          controller: controller,
-          readOnly: true,
-          enabled: enabled,
-          onTap: enabled ? () => _selectDate() : null,
-          decoration: InputDecoration(
-            hintText: hintText,
-            prefixIcon: Icon(icon, color: const Color(0xFFFF6B35), size: 20),
-            suffixIcon: const Icon(
-              Icons.calendar_today,
-              color: Color(0xFFFF6B35),
-              size: 20,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.grey[300]!),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.grey[300]!),
-            ),
-            disabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.grey[200]!),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFFF6B35), width: 2),
-            ),
-            filled: true,
-            fillColor: enabled ? Colors.grey[50] : Colors.grey[100],
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 16,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _selectDate() async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().subtract(
-        const Duration(days: 365),
-      ), // Default to 1 year ago
-      firstDate: DateTime(2010),
-      lastDate: DateTime.now(),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFFFF6B35),
-              onPrimary: Colors.white,
-              surface: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (picked != null) {
-      setState(() {
-        _childDobController.text =
-            "${picked.day}/${picked.month}/${picked.year}";
-      });
-    }
   }
 
   void _clearAllFields() {
