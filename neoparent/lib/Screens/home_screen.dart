@@ -35,7 +35,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
-    final userName = authProvider.currentUser?.displayName ?? 'User';
+    final userName = authProvider.currentUser?.firstName ?? 'User';
 
     return SingleChildScrollView(
       child: Column(
