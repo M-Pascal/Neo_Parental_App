@@ -619,7 +619,7 @@ if not st.session_state.token:
 # Main Dashboard
 st.markdown("""
     <div style="text-align: center; margin-bottom: 20px;">
-        <h1>👶 NeoParental Admin Dashboard</h1>
+        <h1><span style="color: inherit; -webkit-text-fill-color: initial;">👶</span> NeoParental Admin Dashboard</h1>
         <p style="color: #FB8239; font-size: 18px; font-weight: 500;">Complete Analytics & User Management</p>
     </div>
 """, unsafe_allow_html=True)
@@ -697,10 +697,10 @@ with st.sidebar:
 # =======================
 # RETRAIN MODEL PAGE
 # =======================
-if st.session_state.current_page == '⟳ retrain':
+if st.session_state.current_page == 'retrain':
     st.markdown("""
         <div style="text-align: center; margin-bottom: 20px;">
-            <h1>🧠 Model Retraining</h1>
+            <h1>Model Retraining</h1>
             <p style="color: #FB8239; font-size: 18px; font-weight: 500;">Train a new model with custom dataset</p>
         </div>
     """, unsafe_allow_html=True)
@@ -886,7 +886,7 @@ if st.session_state.current_page == '⟳ retrain':
                     st.info(" Please check:\n- ZIP file structure is correct\n- Audio files are in supported formats (WAV, MP3, FLAC)\n- Backend server is running\n- API endpoint is accessible")
     
     else:
-        st.info("📁 Please upload a ZIP file to begin training")
+        st.info("Please upload a ZIP file to begin training")
     
     # Training History Section
     if st.session_state.training_history:
