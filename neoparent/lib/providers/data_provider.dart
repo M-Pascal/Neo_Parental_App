@@ -1,37 +1,123 @@
 import 'package:flutter/foundation.dart';
 import '../models/history_item_model.dart';
 import '../models/parenting_skill_model.dart';
+import '../models/prediction_history_model.dart';
+import '../services/history_service.dart';
 
 /// Provider for managing history items
 class HistoryProvider with ChangeNotifier {
   List<HistoryItemModel> _historyItems = [];
+  List<PredictionHistoryModel> _predictions = [];
+  DateTime? _accountCreationDate;
+  bool _isLoading = false;
+  final HistoryService _historyService = HistoryService();
 
   /// Get all history items
   List<HistoryItemModel> get historyItems => [..._historyItems];
 
-  /// Get history items from the last week
+  /// Get loading state
+  bool get isLoading => _isLoading;
+
+  /// Load predictions from API
+  Future<void> loadPredictions(String? authToken) async {
+    if (authToken == null) return;
+
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      _predictions = await _historyService.fetchMyPredictions(authToken);
+
+      // Set account creation date based on earliest prediction
+      if (_predictions.isNotEmpty) {
+        _accountCreationDate = _predictions
+            .map((p) => p.createdAt)
+            .reduce((a, b) => a.isBefore(b) ? a : b);
+      }
+
+      _isLoading = false;
+      notifyListeners();
+    } catch (e) {
+      print('Error loading predictions: $e');
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Get history items from the last week based on account creation date
   List<HistoryItemModel> get thisWeekItems {
-    final weekAgo = DateTime.now().subtract(const Duration(days: 7));
-    return _historyItems.where((item) => item.date.isAfter(weekAgo)).toList();
-  }
+    if (_predictions.isEmpty || _accountCreationDate == null) {
+      // Fallback to old behavior if no predictions
+      final weekAgo = DateTime.now().subtract(const Duration(days: 7));
+      return _historyItems.where((item) => item.date.isAfter(weekAgo)).toList();
+    }
 
-  /// Calculate average confidence from all history items
-  int get averageConfidence {
-    if (_historyItems.isEmpty) return 0;
-    final total = _historyItems.fold<int>(
-      0,
-      (sum, item) => sum + item.confidence,
+    // Calculate week based on account creation date
+    final now = DateTime.now();
+    final daysSinceCreation = now.difference(_accountCreationDate!).inDays;
+    final currentWeekNumber = daysSinceCreation ~/ 7;
+
+    final currentWeekStart = _accountCreationDate!.add(
+      Duration(days: currentWeekNumber * 7),
     );
-    return total ~/ _historyItems.length;
+    final currentWeekEnd = currentWeekStart.add(const Duration(days: 7));
+
+    // Return empty list to show count
+    return List.generate(
+      _predictions.where((prediction) {
+        return prediction.createdAt.isAfter(currentWeekStart) &&
+            prediction.createdAt.isBefore(currentWeekEnd);
+      }).length,
+      (index) => HistoryItemModel(
+        id: index.toString(),
+        date: DateTime.now(),
+        duration: const Duration(seconds: 0),
+        analysis: '',
+        confidence: 0,
+        status: AnalysisStatus.completed,
+      ),
+    );
   }
 
-  /// Get most common analysis type
-  String get mostCommonAnalysis {
-    if (_historyItems.isEmpty) return 'N/A';
+  /// Calculate average confidence from all predictions
+  int get averageConfidence {
+    if (_predictions.isEmpty) {
+      // Fallback to old behavior
+      if (_historyItems.isEmpty) return 0;
+      final total = _historyItems.fold<int>(
+        0,
+        (sum, item) => sum + item.confidence,
+      );
+      return total ~/ _historyItems.length;
+    }
 
-    final analysisCount = <String, int>{};
-    for (var item in _historyItems) {
-      analysisCount[item.analysis] = (analysisCount[item.analysis] ?? 0) + 1;
+    double total = _predictions.fold(
+      0.0,
+      (sum, prediction) => sum + (prediction.confidence ?? 0.0),
+    );
+    return (total / _predictions.length).round();
+  }
+
+  /// Get most common analysis type from predictions
+  String get mostCommonAnalysis {
+    if (_predictions.isEmpty) {
+      // Fallback to old behavior
+      if (_historyItems.isEmpty) return '';
+
+      final analysisCount = <String, int>{};
+      for (var item in _historyItems) {
+        analysisCount[item.analysis] = (analysisCount[item.analysis] ?? 0) + 1;
+      }
+
+      return analysisCount.entries
+          .reduce((a, b) => a.value > b.value ? a : b)
+          .key;
+    }
+
+    Map<String, int> analysisCount = {};
+    for (var prediction in _predictions) {
+      final label = prediction.predictedLabel ?? 'Unknown';
+      analysisCount[label] = (analysisCount[label] ?? 0) + 1;
     }
 
     return analysisCount.entries

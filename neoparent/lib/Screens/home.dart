@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
+import '../services/history_service.dart';
+import '../models/prediction_history_model.dart';
 import './login.dart';
 import './main_navigation.dart';
 import './profile.dart';
@@ -12,45 +16,60 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0; // Track selected navigation item
+  final HistoryService _historyService = HistoryService();
 
   // Track expanded state for parenting skills cards
   Map<int, bool> _expandedCards = {};
 
-  // Sample history data for statistics
-  final List<HistoryItem> _historyItems = [
-    HistoryItem(
-      id: '1',
-      date: DateTime.now().subtract(const Duration(hours: 2)),
-      duration: const Duration(seconds: 15),
-      analysis: 'Hunger',
-      confidence: 89,
-      status: AnalysisStatus.completed,
-    ),
-    HistoryItem(
-      id: '2',
-      date: DateTime.now().subtract(const Duration(days: 1)),
-      duration: const Duration(seconds: 23),
-      analysis: 'Discomfort',
-      confidence: 76,
-      status: AnalysisStatus.completed,
-    ),
-    HistoryItem(
-      id: '3',
-      date: DateTime.now().subtract(const Duration(days: 2)),
-      duration: const Duration(seconds: 18),
-      analysis: 'Tired',
-      confidence: 82,
-      status: AnalysisStatus.completed,
-    ),
-    HistoryItem(
-      id: '4',
-      date: DateTime.now().subtract(const Duration(days: 3)),
-      duration: const Duration(seconds: 12),
-      analysis: 'Pain',
-      confidence: 65,
-      status: AnalysisStatus.lowConfidence,
-    ),
-  ];
+  // Real prediction data from database
+  List<PredictionHistoryModel> _predictions = [];
+  bool _isLoadingPredictions = true;
+  DateTime? _accountCreationDate;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPredictions();
+  }
+
+  Future<void> _loadPredictions() async {
+    final authProvider = context.read<AuthProvider>();
+    final authToken = authProvider.accessToken;
+
+    if (authToken == null) {
+      setState(() => _isLoadingPredictions = false);
+      return;
+    }
+
+    try {
+      final predictions = await _historyService.fetchMyPredictions(authToken);
+
+      // Get account creation date from earliest prediction
+      // Since we don't have createdAt in user model, use earliest prediction date
+
+      if (mounted) {
+        setState(() {
+          _predictions = predictions;
+          _isLoadingPredictions = false;
+
+          // Set account creation date based on earliest prediction
+          if (predictions.isNotEmpty) {
+            _accountCreationDate = predictions
+                .map((p) => p.createdAt)
+                .reduce((a, b) => a.isBefore(b) ? a : b);
+          }
+        });
+      }
+    } catch (e) {
+      print('Error loading predictions: $e');
+      if (mounted) {
+        setState(() => _isLoadingPredictions = false);
+      }
+    }
+  }
+
+  // Sample history data for statistics (REMOVED - now using real data)
+  // final List<HistoryItem> _historyItems = [...];
 
   // Parenting skills data
   final List<ParentingSkill> _parentingSkills = [
@@ -173,33 +192,56 @@ class _HomePageState extends State<HomePage> {
               child: Row(
                 children: [
                   // Text Section (Left Side)
-                  const Expanded(
+                  Expanded(
                     flex: 3,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Good Morning,',
-                          style: TextStyle(fontSize: 16, color: Colors.white70),
-                        ),
-                        const Text(
-                          'John Doe',
-                          style: TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Welcome to NeoParental\nYour parenting companion',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.white,
-                            height: 1.4,
-                          ),
-                        ),
-                      ],
+                    child: Consumer<AuthProvider>(
+                      builder: (context, authProvider, _) {
+                        final user = authProvider.currentUser;
+                        final firstName = user?.firstName ?? 'User';
+                        final lastName = user?.lastName ?? '';
+                        final fullName = '$firstName $lastName'.trim();
+
+                        // Get time-based greeting
+                        final hour = DateTime.now().hour;
+                        String greeting;
+                        if (hour < 12) {
+                          greeting = 'Good Morning,';
+                        } else if (hour < 17) {
+                          greeting = 'Good Afternoon,';
+                        } else {
+                          greeting = 'Good Evening,';
+                        }
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              greeting,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                color: Colors.white70,
+                              ),
+                            ),
+                            Text(
+                              fullName,
+                              style: const TextStyle(
+                                fontSize: 28,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Welcome to NeoParental\nYour parenting companion',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.white,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ),
 
@@ -367,13 +409,57 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildStatisticsSection() {
+    // Don't show statistics if still loading or no predictions
+    if (_isLoadingPredictions) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(20.0),
+          child: CircularProgressIndicator(color: Color(0xFFFF6B35)),
+        ),
+      );
+    }
+
+    // Show empty state if account is fresh (no predictions)
+    if (_predictions.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.grey[100],
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Icon(Icons.analytics_outlined, size: 48, color: Colors.grey[400]),
+            const SizedBox(height: 12),
+            Text(
+              'No statistics yet',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Start analyzing baby cries to see your statistics',
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final thisWeekCount = _getThisWeekCount();
+    final avgConfidence = _calculateAverageConfidence();
+    final mostCommon = _getMostCommonAnalysis();
+
     return Row(
       children: [
         Expanded(
           child: _buildStatCard(
             title: 'This Week',
-            value:
-                '${_historyItems.where((item) => item.date.isAfter(DateTime.now().subtract(const Duration(days: 7)))).length}',
+            value: thisWeekCount.toString(),
             icon: Icons.calendar_today,
             color: Colors.blue,
           ),
@@ -382,7 +468,7 @@ class _HomePageState extends State<HomePage> {
         Expanded(
           child: _buildStatCard(
             title: 'Avg Confidence',
-            value: '${_calculateAverageConfidence()}%',
+            value: '$avgConfidence%',
             icon: Icons.trending_up,
             color: Colors.green,
           ),
@@ -391,7 +477,7 @@ class _HomePageState extends State<HomePage> {
         Expanded(
           child: _buildStatCard(
             title: 'Most Common',
-            value: _getMostCommonAnalysis(),
+            value: mostCommon,
             icon: Icons.analytics,
             color: Colors.purple,
           ),
@@ -443,19 +529,49 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // Helper methods
+  // Helper methods for statistics
+  int _getThisWeekCount() {
+    if (_predictions.isEmpty || _accountCreationDate == null) return 0;
+
+    // Calculate week based on account creation date
+    final now = DateTime.now();
+    final daysSinceCreation = now.difference(_accountCreationDate!).inDays;
+
+    // Determine current week number (0-indexed)
+    final currentWeekNumber = daysSinceCreation ~/ 7;
+
+    // Get start and end of current week based on account creation
+    final currentWeekStart = _accountCreationDate!.add(
+      Duration(days: currentWeekNumber * 7),
+    );
+    final currentWeekEnd = currentWeekStart.add(const Duration(days: 7));
+
+    // Count predictions in current week
+    return _predictions.where((prediction) {
+      return prediction.createdAt.isAfter(currentWeekStart) &&
+          prediction.createdAt.isBefore(currentWeekEnd);
+    }).length;
+  }
+
   int _calculateAverageConfidence() {
-    if (_historyItems.isEmpty) return 0;
-    int total = _historyItems.fold(0, (sum, item) => sum + item.confidence);
-    return total ~/ _historyItems.length;
+    if (_predictions.isEmpty) return 0;
+
+    double total = _predictions.fold(
+      0.0,
+      (sum, prediction) => sum + (prediction.confidence ?? 0.0),
+    );
+    return (total / _predictions.length).round();
   }
 
   String _getMostCommonAnalysis() {
-    if (_historyItems.isEmpty) return 'N/A';
+    if (_predictions.isEmpty) return '';
+
     Map<String, int> analysisCount = {};
-    for (var item in _historyItems) {
-      analysisCount[item.analysis] = (analysisCount[item.analysis] ?? 0) + 1;
+    for (var prediction in _predictions) {
+      final label = prediction.predictedLabel ?? 'Unknown';
+      analysisCount[label] = (analysisCount[label] ?? 0) + 1;
     }
+
     return analysisCount.entries
         .reduce((a, b) => a.value > b.value ? a : b)
         .key;

@@ -6,8 +6,31 @@ import '../utils/app_colors.dart';
 import '../utils/app_strings.dart';
 
 /// Home screen displaying user welcome, statistics, and parenting skills
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Load predictions when screen initializes
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final historyProvider = Provider.of<HistoryProvider>(
+        context,
+        listen: false,
+      );
+      final authToken = authProvider.accessToken;
+
+      if (authToken != null) {
+        historyProvider.loadPredictions(authToken);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
