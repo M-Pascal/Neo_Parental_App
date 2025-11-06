@@ -5,9 +5,66 @@ from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 from typing import Dict, List
+import base64
+from pathlib import Path
 
 # Configuration
 API_BASE_URL = "http://localhost:8000"  # Change this to your API URL
+
+# Helper function to load and encode images
+def get_icon_html(icon_name: str, size: int = 20, color: str = None) -> str:
+    """
+    Load a custom icon and return HTML to display it.
+    Place your icon files in: admin_dashboard/assets/icons/
+    Supported formats: PNG, SVG
+    
+    Args:
+        icon_name: Name of the icon file (e.g., 'lock.png', 'chart.svg')
+        size: Size of the icon in pixels
+        color: Optional color (works with SVG icons)
+    
+    Returns:
+        HTML string to display the icon
+    """
+    icon_path = Path(__file__).parent / "assets" / "icons" / icon_name
+    
+    if not icon_path.exists():
+        # Fallback: return empty string if icon not found
+        return ""
+    
+    try:
+        if icon_name.endswith('.svg'):
+            # For SVG files, read and inject directly
+            with open(icon_path, 'r', encoding='utf-8') as f:
+                svg_content = f.read()
+                # Properly handle SVG attributes
+                # Remove any existing style attributes first
+                import re
+                svg_content = re.sub(r'<svg[^>]*>', '<svg>', svg_content)
+                
+                # Build style string
+                style = f'width:{size}px;height:{size}px;vertical-align:middle;display:inline-block;'
+                
+                # Apply color if specified
+                if color:
+                    # Replace fill attribute or add it
+                    if 'fill=' in svg_content:
+                        svg_content = re.sub(r'fill="[^"]*"', f'fill="{color}"', svg_content)
+                    else:
+                        svg_content = svg_content.replace('<path', f'<path fill="{color}"')
+                
+                # Add style to SVG tag
+                svg_content = svg_content.replace('<svg>', f'<svg style="{style}">')
+                
+                return svg_content
+        else:
+            # For PNG/JPG files, encode as base64
+            with open(icon_path, 'rb') as f:
+                data = base64.b64encode(f.read()).decode()
+                ext = icon_path.suffix[1:]
+                return f'<img src="data:image/{ext};base64,{data}" style="width:{size}px;height:{size}px;vertical-align:middle;display:inline-block;" />'
+    except Exception as e:
+        return ""
 
 # Page configuration
 st.set_page_config(
@@ -196,6 +253,14 @@ st.markdown("""
         box-shadow: 0 0 0 2px rgba(214, 70, 18, 0.1);
     }
     
+    /* Input field labels */
+    .stTextInput label,
+    .stNumberInput label {
+        color: #333333 !important;
+        font-weight: 500 !important;
+        font-size: 14px !important;
+    }
+    
     /* Form styling for login */
     .stForm {
         background: white;
@@ -283,6 +348,10 @@ if 'token' not in st.session_state:
     st.session_state.token = None
 if 'user' not in st.session_state:
     st.session_state.user = None
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = 'dashboard'
+if 'training_history' not in st.session_state:
+    st.session_state.training_history = []
 
 def login(username: str, password: str) -> bool:
     """Authenticate user and get access token"""
@@ -426,6 +495,80 @@ def create_user_summary(users: List[Dict], predictions: List[Dict]) -> pd.DataFr
     
     return pd.DataFrame(user_data)
 
+def retrain_model(zip_file) -> Dict:
+    """
+    Call the backend API to retrain the model with uploaded dataset
+    API endpoint: POST /admin/retrain
+    """
+    try:
+        # Prepare the file for upload
+        files = {
+            'file': (zip_file.name, zip_file, 'application/zip')
+        }
+        
+        # Call the API endpoint
+        response = requests.post(
+            f"{API_BASE_URL}/admin/retrain",
+            files=files,
+            headers=get_headers(),
+            timeout=600  # 10 minutes timeout for training
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            
+            # Add timestamp if not present
+            if 'timestamp' not in result:
+                result['timestamp'] = datetime.now().isoformat()
+            
+            return {
+                "status": "success",
+                "message": result.get("status", "Model retrained successfully"),
+                "metrics": {
+                    "accuracy": result.get("accuracy", 0),
+                    "precision": result.get("precision", 0),
+                    "recall": result.get("recall", 0),
+                    "f1_score": result.get("f1_score", 0),
+                    "roc_auc": result.get("roc_auc", "N/A")
+                },
+                "timestamp": result.get('timestamp', datetime.now().isoformat())
+            }
+        else:
+            return {
+                "status": "error",
+                "message": f"API error: {response.status_code} - {response.text}"
+            }
+            
+    except requests.exceptions.Timeout:
+        return {
+            "status": "error",
+            "message": "Request timeout. Training took too long. Please try with a smaller dataset."
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error during retraining: {str(e)}"
+        }
+
+def save_trained_model() -> Dict:
+    """
+    Call the backend API to save the trained model
+    API endpoint: POST /admin/save_model
+    """
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/admin/save_model",
+            headers=get_headers(),
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            return {"status": "success", "message": "Model saved successfully"}
+        else:
+            return {"status": "error", "message": f"Failed to save model: {response.text}"}
+    except Exception as e:
+        return {"status": "error", "message": f"Error saving model: {str(e)}"}
+
 # Login page
 if not st.session_state.token:
     # Create centered layout with background
@@ -440,20 +583,21 @@ if not st.session_state.token:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         with st.form("login_form"):
-            st.markdown("<h3 style='text-align: center; color: #D64612; margin-bottom: 20px;'>🔐 Admin Login</h3>", unsafe_allow_html=True)
+            lock_icon = get_icon_html("lock.svg", size=24, color="#D64612")
+            st.markdown(f"<h3 style='text-align: center; color: #D64612; margin-bottom: 20px;'>{lock_icon} Admin Login</h3>", unsafe_allow_html=True)
             
-            username = st.text_input("👤 Username or Email", placeholder="Enter your username or email")
-            password = st.text_input("🔑 Password", type="password", placeholder="Enter your password")
+            username = st.text_input("Username or Email", placeholder="Enter your username or email")
+            password = st.text_input("Password", type="password", placeholder="Enter your password")
             
             st.markdown("<br>", unsafe_allow_html=True)
-            submit = st.form_submit_button("🚀 Login", use_container_width=True)
+            submit = st.form_submit_button("↪ Login", use_container_width=True)
             
             if submit:
                 with st.spinner("Authenticating..."):
                     if login(username, password):
                         # Check if user is admin
                         if st.session_state.user.get('role') == 'admin':
-                            st.success("✅ Login successful! Redirecting...")
+                            st.success("Login successful! Redirecting...")
                             st.rerun()
                         else:
                             st.error("Admin access required")
@@ -510,20 +654,28 @@ with st.sidebar:
     # Quick actions
     st.markdown("<h3 style='color: white; font-size: 18px; margin-bottom: 15px;'>⚡ Quick Actions</h3>", unsafe_allow_html=True)
     
-    if st.button("🔄 Refresh Data", use_container_width=True):
+    if st.button("⟲ Refresh Data", use_container_width=True):
         st.rerun()
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    if st.button("🚪 Logout", use_container_width=True):
+    # Navigate to retrain page
+    if st.button("Retrain Model", use_container_width=True):
+        st.session_state.current_page = 'retrain'
+        st.rerun()
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    if st.button("↩︎ Logout", use_container_width=True):
         st.session_state.token = None
         st.session_state.user = None
         st.rerun()
     
     st.markdown("---")
     
-    # Stats summary in sidebar
-    st.markdown("<h3 style='color: white; font-size: 18px; margin-bottom: 15px;'>📊 Quick Stats</h3>", unsafe_allow_html=True)
+    # Stats summary in sidebar - use icon in markdown
+    chart_icon = get_icon_html("chart.svg", size=18, color="white")
+    st.markdown(f"<h3 style='color: white; font-size: 18px; margin-bottom: 15px;'>{chart_icon} Quick Stats</h3>", unsafe_allow_html=True)
     
     # We'll update this after fetching data
     if 'sidebar_stats' in st.session_state:
@@ -542,8 +694,258 @@ with st.sidebar:
             </div>
         """, unsafe_allow_html=True)
 
+# =======================
+# RETRAIN MODEL PAGE
+# =======================
+if st.session_state.current_page == '⟳ retrain':
+    st.markdown("""
+        <div style="text-align: center; margin-bottom: 20px;">
+            <h1>🧠 Model Retraining</h1>
+            <p style="color: #FB8239; font-size: 18px; font-weight: 500;">Train a new model with custom dataset</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Back button
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col1:
+        if st.button("← Back to Dashboard", use_container_width=True):
+            st.session_state.current_page = 'dashboard'
+            st.rerun()
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Instructions
+    st.markdown("""
+        <div style="background: linear-gradient(135deg, #FFF5F0, #FFE5DC); padding: 20px; border-radius: 15px; border: 2px solid #FFE5DC; margin-bottom: 30px;">
+            <h3 style="color: #D64612; margin-top: 0;">📋 Instructions</h3>
+            <ol style="color: #666; line-height: 1.8;">
+                <li>Prepare your training data as a <strong>ZIP file</strong></li>
+                <li>The ZIP should contain audio files organized in folders by label:
+                    <ul>
+                        <li>Belly_pain/</li>
+                        <li>Burping/</li>
+                        <li>Discomfort/</li>
+                        <li>Hungry/</li>
+                        <li>Tired_Sleepy/</li>
+                    </ul>
+                </li>
+                <li>Each folder should contain WAV audio files for that category</li>
+                <li>Upload the ZIP file below to start training</li>
+                <li>Training may take several minutes depending on dataset size</li>
+            </ol>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # File upload section
+    st.markdown("<h2>📤 Upload Training Data</h2>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    uploaded_file = st.file_uploader(
+        "Choose a ZIP file containing training data",
+        type=['zip'],
+        help="Upload a ZIP file with audio files organized by label folders"
+    )
+    
+    if uploaded_file is not None:
+        # Display file info
+        file_size_mb = uploaded_file.size / (1024 * 1024)
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📁 File Name", uploaded_file.name)
+        with col2:
+            st.metric("📊 File Size", f"{file_size_mb:.2f} MB")
+        with col3:
+            st.metric("📝 File Type", uploaded_file.type)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Start training button
+        if st.button("Start Training", use_container_width=False, type="primary"):
+            # Reset file pointer to beginning
+            uploaded_file.seek(0)
+            
+            with st.spinner("🔄 Training model... This may take several minutes..."):
+                # Call the retrain function
+                result = retrain_model(uploaded_file)
+                
+                if result["status"] == "success":
+                    st.success(f"✅ {result['message']}")
+                    
+                    # Store in session state for review
+                    st.session_state.last_training_result = result
+                    
+                    # Display metrics
+                    st.markdown("<br><h2>📊 Model Evaluation Metrics</h2>", unsafe_allow_html=True)
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    
+                    # Main metrics
+                    metric_col1, metric_col2, metric_col3, metric_col4, metric_col5 = st.columns(5)
+                    
+                    # Note: st.metric() doesn't support HTML, so we use emojis for now
+                    with metric_col1:
+                        st.metric(
+                            label="🎯 Accuracy",
+                            value=f"{result['metrics']['accuracy']:.1%}"
+                        )
+                    
+                    with metric_col2:
+                        st.metric(
+                            label="📊 Precision",
+                            value=f"{result['metrics']['precision']:.1%}"
+                        )
+                    
+                    with metric_col3:
+                        st.metric(
+                            label="🔍 Recall",
+                            value=f"{result['metrics']['recall']:.1%}"
+                        )
+                    
+                    with metric_col4:
+                        st.metric(
+                            label="⚖️ F1 Score",
+                            value=f"{result['metrics']['f1_score']:.1%}"
+                        )
+                    
+                    with metric_col5:
+                        roc_auc = result['metrics'].get('roc_auc', 'N/A')
+                        st.metric(
+                            label="📈 ROC-AUC",
+                            value=f"{roc_auc:.3f}" if isinstance(roc_auc, (int, float)) else roc_auc
+                        )
+                    
+                    st.markdown("<br><br>", unsafe_allow_html=True)
+                    
+                    # Metrics interpretation
+                    st.markdown("""
+                        <div style="background: linear-gradient(135deg, #E8F5E9, #C8E6C9); padding: 20px; border-radius: 15px; border-left: 5px solid #4CAF50; margin-bottom: 20px;">
+                            <h4 style="color: #2E7D32; margin-top: 0;">📈 Metrics Interpretation</h4>
+                            <ul style="color: #1B5E20; line-height: 1.8; margin-bottom: 0;">
+                                <li><strong>Accuracy:</strong> Overall correctness of predictions</li>
+                                <li><strong>Precision:</strong> How many predicted labels were correct</li>
+                                <li><strong>Recall:</strong> How many actual labels were found</li>
+                                <li><strong>F1 Score:</strong> Harmonic mean of precision and recall</li>
+                                <li><strong>ROC-AUC:</strong> Area under the ROC curve (multi-class)</li>
+                            </ul>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    
+                    # Model decision section
+                    st.markdown("<h2>� Model Management</h2>", unsafe_allow_html=True)
+                    st.markdown("<p style='color: #666; font-size: 16px;'>Review the metrics above and decide whether to save or discard this model</p>", unsafe_allow_html=True)
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    
+                    col1, col2, col3 = st.columns([1, 1, 1])
+                    
+                    with col1:
+                        if st.button("Save Model", use_container_width=True, type="primary"):
+                            with st.spinner("Saving model..."):
+                                save_result = save_trained_model()
+                                
+                                if save_result["status"] == "success":
+                                    st.success(f"✅ {save_result['message']}")
+                                    
+                                    # Add to training history
+                                    result['saved'] = True
+                                    st.session_state.training_history.append(result)
+                                    
+                                    st.balloons()
+                                    st.info("🔄 The new model is now active and will be used for predictions!")
+                                else:
+                                    st.error(f" {save_result['message']}")
+                    
+                    with col2:
+                        if st.button("Discard Model", use_container_width=True):
+                            st.warning("Model discarded. The previous model remains active.")
+                            result['saved'] = False
+                            st.session_state.training_history.append(result)
+                            st.session_state.last_training_result = None
+                    
+                    with col3:
+                        # Show comparison with previous models
+                        if st.session_state.training_history:
+                            with st.expander("📊 Compare with History"):
+                                history_metrics = []
+                                for idx, hist in enumerate(st.session_state.training_history[-5:], 1):
+                                    history_metrics.append({
+                                        'Run': f"#{len(st.session_state.training_history) - 5 + idx}",
+                                        'Accuracy': f"{hist['metrics']['accuracy']:.1%}",
+                                        'F1': f"{hist['metrics']['f1_score']:.1%}",
+                                        'Saved': '✅' if hist.get('saved', False) else ''
+                                    })
+                                
+                                if history_metrics:
+                                    st.dataframe(pd.DataFrame(history_metrics), hide_index=True, use_container_width=True)
+                    
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    
+                else:
+                    st.error(f" Training failed: {result.get('message', 'Unknown error')}")
+                    st.info(" Please check:\n- ZIP file structure is correct\n- Audio files are in supported formats (WAV, MP3, FLAC)\n- Backend server is running\n- API endpoint is accessible")
+    
+    else:
+        st.info("📁 Please upload a ZIP file to begin training")
+    
+    # Training History Section
+    if st.session_state.training_history:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.markdown("<h2>📚 Training History</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #666; font-size: 16px;'>View all previous training sessions and their results</p>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Display training history
+        history_data = []
+        for idx, training in enumerate(reversed(st.session_state.training_history), 1):
+            roc_auc = training['metrics'].get('roc_auc', 'N/A')
+            history_data.append({
+                'Run': f"#{len(st.session_state.training_history) - idx + 1}",
+                'Timestamp': pd.to_datetime(training['timestamp']).strftime('%Y-%m-%d %H:%M:%S'),
+                'Accuracy': f"{training['metrics']['accuracy']:.1%}",
+                'Precision': f"{training['metrics']['precision']:.1%}",
+                'Recall': f"{training['metrics']['recall']:.1%}",
+                'F1 Score': f"{training['metrics']['f1_score']:.1%}",
+                'ROC-AUC': f"{roc_auc:.3f}" if isinstance(roc_auc, (int, float)) else roc_auc,
+                'Saved': 'Yes' if training.get('saved', False) else 'No'
+            })
+        
+        history_df = pd.DataFrame(history_data)
+        st.dataframe(
+            history_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Run": st.column_config.TextColumn("🔢 Run", width="small"),
+                "Timestamp": st.column_config.TextColumn("📅 Timestamp", width="medium"),
+                "Accuracy": st.column_config.TextColumn("🎯 Accuracy", width="small"),
+                "Precision": st.column_config.TextColumn("📊 Precision", width="small"),
+                "Recall": st.column_config.TextColumn("🔍 Recall", width="small"),
+                "F1 Score": st.column_config.TextColumn("⚖️ F1", width="small"),
+                "ROC-AUC": st.column_config.TextColumn("📈 ROC-AUC", width="small"),
+                "Saved": st.column_config.TextColumn("💾 Saved", width="small"),
+            }
+        )
+        
+        # Download training history
+        st.markdown("<br>", unsafe_allow_html=True)
+        csv_data = history_df.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Training History (CSV)",
+            data=csv_data,
+            file_name=f"training_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            use_container_width=False
+        )
+    
+    st.stop()
+
+# =======================
+# MAIN DASHBOARD PAGE
+# =======================
+
 # Fetch data
-with st.spinner("🔄 Loading dashboard data..."):
+with st.spinner(" Loading dashboard data..."):
     predictions = fetch_all_predictions()
     users = fetch_all_users()
     metrics = calculate_metrics(predictions)
@@ -596,7 +998,7 @@ if metrics["by_label"]:
     
     labels_order = ["Belly_pain", "Burping", "Discomfort", "Hungry", "Tired/Sleepy"]
     colors = ["#ef4444", "#06b6d4", "#3b82f6", "#f59e0b", "#10b981"]
-    label_emojis = ["😣", "🍼", "😰", "🍽️", "😴"]
+    label_emojis = ["", "", "", "", ""]
     
     for idx, (col, label, emoji) in enumerate(zip([col1, col2, col3, col4, col5], labels_order, label_emojis)):
         count = metrics["by_label"].get(label, 0)
@@ -786,7 +1188,7 @@ if not user_summary_df.empty:
         use_container_width=False
     )
 else:
-    st.info("📭 No user data available yet.")
+    st.info("No user data available yet.")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -801,11 +1203,11 @@ if predictions:
     
     # Add emoji labels
     label_emoji_map = {
-        "Belly_pain": "😣",
-        "Burping": "🍼",
-        "Discomfort": "😰",
-        "Hungry": "🍽️",
-        "Tired/Sleepy": "😴"
+        "Belly_pain": "",
+        "Burping": "",
+        "Discomfort": "",
+        "Hungry": "",
+        "Tired/Sleepy": ""
     }
     
     recent_df['Label with Icon'] = recent_df['predicted_label'].apply(
@@ -817,11 +1219,11 @@ if predictions:
         use_container_width=True,
         height=400,
         column_config={
-            "username": st.column_config.TextColumn("👤 User", width="medium"),
-            "audio_filename": st.column_config.TextColumn("🎵 Audio File", width="large"),
-            "Label with Icon": st.column_config.TextColumn("🏷️ Predicted Label", width="medium"),
-            "confidence": st.column_config.NumberColumn("🎯 Confidence (%)", format="%.1f", width="small"),
-            "created_at": st.column_config.DatetimeColumn("📅 Date & Time", format="DD/MM/YYYY HH:mm", width="medium")
+            "username": st.column_config.TextColumn("User", width="medium"),
+            "audio_filename": st.column_config.TextColumn("Audio File", width="large"),
+            "Label with Icon": st.column_config.TextColumn("Predicted Label", width="medium"),
+            "confidence": st.column_config.NumberColumn("Confidence (%)", format="%.1f", width="small"),
+            "created_at": st.column_config.DatetimeColumn("Date & Time", format="DD/MM/YYYY HH:mm", width="medium")
         },
         hide_index=True
     )
