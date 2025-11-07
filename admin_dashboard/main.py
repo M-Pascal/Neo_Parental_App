@@ -7,6 +7,10 @@ import plotly.graph_objects as go
 from typing import Dict, List
 import base64
 from pathlib import Path
+import zipfile
+import io
+import tempfile
+from urllib.request import urlopen
 
 # Configuration
 API_BASE_URL = "http://localhost:8000"  # Our FastAPI URL
@@ -501,16 +505,22 @@ def retrain_model(zip_file) -> Dict:
     API endpoint: POST /admin/retrain
     """
     try:
+        # Reset file pointer to beginning
+        zip_file.seek(0)
+        
         # Prepare the file for upload
         files = {
-            'file': (zip_file.name, zip_file, 'application/zip')
+            'file': (zip_file.name, zip_file.getvalue(), 'application/zip')
         }
+        
+        # Get headers with authentication token
+        headers = get_headers()
         
         # Call the API endpoint
         response = requests.post(
             f"{API_BASE_URL}/admin/retrain",
             files=files,
-            headers=get_headers(),
+            headers=headers,
             timeout=600  # 10 minutes timeout for training
         )
         
@@ -568,6 +578,144 @@ def save_trained_model() -> Dict:
             return {"status": "error", "message": f"Failed to save model: {response.text}"}
     except Exception as e:
         return {"status": "error", "message": f"Error saving model: {str(e)}"}
+
+def deploy_model() -> Dict:
+    """
+    Call the backend API to deploy the saved model
+    API endpoint: POST /admin/deploy_model
+    """
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/admin/deploy_model",
+            headers=get_headers(),
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            return {
+                "status": "success",
+                "message": result.get("message", "Model deployed successfully"),
+                "deployment_status": result.get("deployment_status", "on")
+            }
+        else:
+            return {"status": "error", "message": f"Failed to deploy model: {response.text}"}
+    except Exception as e:
+        return {"status": "error", "message": f"Error deploying model: {str(e)}"}
+
+def get_deployment_status() -> Dict:
+    """
+    Call the backend API to get deployment status
+    API endpoint: GET /admin/deployment_status
+    """
+    try:
+        response = requests.get(
+            f"{API_BASE_URL}/admin/deployment_status",
+            headers=get_headers(),
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {
+                "deployment_status": "unknown",
+                "error": f"Failed to get status: {response.text}"
+            }
+    except Exception as e:
+        return {
+            "deployment_status": "unknown",
+            "error": f"Error getting status: {str(e)}"
+        }
+
+def deactivate_model() -> Dict:
+    """
+    Call the backend API to deactivate the deployed model
+    API endpoint: POST /admin/deactivate_model
+    """
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/admin/deactivate_model",
+            headers=get_headers(),
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            return {
+                "status": "success",
+                "message": result.get("message", "Model deactivated successfully"),
+                "deployment_status": result.get("deployment_status", "off")
+            }
+        else:
+            return {"status": "error", "message": f"Failed to deactivate model: {response.text}"}
+    except Exception as e:
+        return {"status": "error", "message": f"Error deactivating model: {str(e)}"}
+
+def download_audio_files_by_label(predictions_data: List[Dict]) -> bytes:
+    """
+    Download all audio files from Cloudinary URLs and organize them by label in a ZIP file.
+    
+    Args:
+        predictions_data: List of prediction dictionaries containing audio_url and predicted_label
+    
+    Returns:
+        Bytes of the ZIP file
+    """
+    # Create a BytesIO object to store the ZIP file in memory
+    zip_buffer = io.BytesIO()
+    
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        # Group predictions by label
+        label_groups = {}
+        for pred in predictions_data:
+            label = pred.get('predicted_label', 'Unknown')
+            if label not in label_groups:
+                label_groups[label] = []
+            label_groups[label].append(pred)
+        
+        # Process each label group
+        for label, predictions in label_groups.items():
+            # Sanitize label for folder name
+            folder_name = label.replace('/', '_').replace('\\', '_')
+            
+            for idx, pred in enumerate(predictions, 1):
+                audio_url = pred.get('audio_url')
+                original_filename = pred.get('audio_filename', f'audio_{idx}')
+                
+                if not audio_url:
+                    continue
+                
+                try:
+                    # Download the audio file from Cloudinary
+                    response = requests.get(audio_url, timeout=30)
+                    
+                    if response.status_code == 200:
+                        # Get file extension from original filename
+                        file_ext = Path(original_filename).suffix or '.wav'
+                        
+                        # Create unique filename: username_timestamp_original
+                        username = pred.get('username', 'user')
+                        timestamp = pred.get('created_at', '')
+                        if timestamp:
+                            timestamp_str = pd.to_datetime(timestamp).strftime('%Y%m%d_%H%M%S')
+                        else:
+                            timestamp_str = f'{idx:04d}'
+                        
+                        new_filename = f"{username}_{timestamp_str}_{original_filename}"
+                        
+                        # Add to ZIP under label folder
+                        file_path_in_zip = f"Audio/{folder_name}/{new_filename}"
+                        zip_file.writestr(file_path_in_zip, response.content)
+                        
+                except Exception as e:
+                    # Log error but continue with other files
+                    print(f"Error downloading {audio_url}: {e}")
+                    continue
+    
+    # Get the ZIP file bytes
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue()
 
 # Login page
 if not st.session_state.token:
@@ -852,7 +1000,7 @@ if st.session_state.current_page == 'retrain':
                                     st.session_state.training_history.append(result)
                                     
                                     st.balloons()
-                                    st.info("⟳ The new model is now active and will be used for predictions!")
+                                    st.info("Model saved successfully! Use the 'Deploy Model' button below to activate it for predictions.")
                                 else:
                                     st.error(f" {save_result['message']}")
                     
@@ -885,8 +1033,142 @@ if st.session_state.current_page == 'retrain':
                     st.error(f" Training failed: {result.get('message', 'Unknown error')}")
                     st.info(" Please check:\n- ZIP file structure is correct\n- Audio files are in supported formats (WAV, MP3, FLAC)\n- Backend server is running\n- API endpoint is accessible")
     
-    else:
-        st.info("Please upload a ZIP file to begin training")
+    # Model Deployment Section
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("<h2> Model Deployment</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #666; font-size: 16px;'>Control which model is actively used for predictions</p>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Get current deployment status
+    deployment_info = get_deployment_status()
+    deployment_status = deployment_info.get('deployment_status', 'unknown')
+    
+    # Status indicator
+    col_status1, col_status2 = st.columns([1, 3])
+    
+    with col_status1:
+        if deployment_status == "on":
+            st.markdown("""
+                <div style="background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); 
+                            padding: 20px; border-radius: 10px; text-align: center;">
+                    <h3 style="color: white; margin: 0; font-size: 18px;">Status: ON</h3>
+                    <p style="color: white; margin: 5px 0 0 0; font-size: 14px;">Deployed model is active</p>
+                </div>
+            """, unsafe_allow_html=True)
+        elif deployment_status == "off":
+            st.markdown("""
+                <div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); 
+                            padding: 20px; border-radius: 10px; text-align: center;">
+                    <h3 style="color: white; margin: 0; font-size: 18px;">Status: OFF</h3>
+                    <p style="color: white; margin: 5px 0 0 0; font-size: 14px;">Using saved model</p>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+                <div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); 
+                            padding: 20px; border-radius: 10px; text-align: center;">
+                    <h3 style="color: white; margin: 0; font-size: 18px;">Status: UNKNOWN</h3>
+                    <p style="color: white; margin: 5px 0 0 0; font-size: 14px;">Unable to fetch status</p>
+                </div>
+            """, unsafe_allow_html=True)
+    
+    with col_status2:
+        st.markdown("""
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; border-left: 4px solid #D64612;">
+                <h4 style="margin: 0 0 10px 0; color: #333;">Deployment Information</h4>
+                <p style="margin: 5px 0; color: #666; font-size: 14px;">
+                    <strong>Current Mode:</strong> {mode}
+                </p>
+                <p style="margin: 5px 0; color: #666; font-size: 14px;">
+                    <strong>Current Model:</strong> {model_name}
+                </p>
+                <p style="margin: 5px 0; color: #666; font-size: 14px;">
+                    <strong>Model Path:</strong> <span style="font-size: 12px;">{path}</span>
+                </p>
+                <hr style="margin: 10px 0; border: none; border-top: 1px solid #ddd;">
+                <p style="margin: 5px 0; color: #666; font-size: 14px;">
+                    <strong>Saved Model (Fallback):</strong> <span style="font-size: 12px;">{saved_path}</span>
+                </p>
+                {latest_deployment}
+            </div>
+        """.format(
+            mode=deployment_info.get('model_type', 'Unknown'),
+            model_name=deployment_info.get('current_model_name', 'N/A'),
+            path=deployment_info.get('current_model_path', 'N/A'),
+            saved_path=deployment_info.get('saved_model_path', 'N/A'),
+            latest_deployment=f"""
+                <hr style="margin: 10px 0; border: none; border-top: 1px solid #ddd;">
+                <p style="margin: 5px 0; color: #666; font-size: 14px;">
+                    <strong>Last Deployment:</strong>
+                </p>
+                <p style="margin: 5px 0; color: #666; font-size: 13px; padding-left: 15px;">
+                    Model: {deployment_info.get('latest_deployment', {}).get('model_name', 'N/A')}
+                </p>
+                <p style="margin: 5px 0; color: #666; font-size: 13px; padding-left: 15px;">
+                    By: {deployment_info.get('latest_deployment', {}).get('deployed_by', 'N/A')}
+                </p>
+                <p style="margin: 5px 0; color: #666; font-size: 13px; padding-left: 15px;">
+                    At: {pd.to_datetime(deployment_info.get('latest_deployment', {}).get('deployed_at')).strftime('%Y-%m-%d %H:%M:%S') if deployment_info.get('latest_deployment', {}).get('deployed_at') else 'N/A'}
+                </p>
+            """ if deployment_info.get('latest_deployment') else ""
+        ), unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Deployment controls
+    col_deploy1, col_deploy2, col_deploy3 = st.columns([1, 1, 1])
+    
+    with col_deploy1:
+        if st.button("Deploy Model", use_container_width=True, type="primary", disabled=(deployment_status == "on")):
+            with st.spinner("Deploying model..."):
+                deploy_result = deploy_model()
+                
+                if deploy_result["status"] == "success":
+                    st.success(f" {deploy_result['message']}")
+                    st.balloons()
+                    st.rerun()
+                else:
+                    st.error(f" {deploy_result['message']}")
+    
+    with col_deploy2:
+        if st.button("Deactivate Model", use_container_width=True, disabled=(deployment_status != "on")):
+            with st.spinner("Deactivating model..."):
+                deactivate_result = deactivate_model()
+                
+                if deactivate_result["status"] == "success":
+                    st.warning(f" {deactivate_result['message']}")
+                    st.rerun()
+                else:
+                    st.error(f" {deactivate_result['message']}")
+    
+    with col_deploy3:
+        if st.button("Refresh Status", use_container_width=True):
+            st.rerun()
+    
+    # Help information
+    with st.expander(" How Deployment Works"):
+        st.markdown("""
+            <div style="padding: 10px;">
+                <h4>Understanding Model Deployment</h4>
+                <p style="color: #666; margin-bottom: 10px;">The system maintains two separate model directories:</p>
+                <ul style="color: #666; line-height: 1.8;">
+                    <li><strong>Saved Model (Fallback):</strong> Located in <code>Model/saved_model/</code> - This is the original production model that remains unchanged</li>
+                    <li><strong>Admin Models:</strong> Located in <code>Model/admin_saved_model/</code> - New models trained by admins are saved here with timestamps</li>
+                </ul>
+                <h4 style="margin-top: 15px;">Deployment Controls:</h4>
+                <ul style="color: #666; line-height: 1.8;">
+                    <li><strong>Deploy Model (ON):</strong> Activates the latest admin model for all predictions across the application</li>
+                    <li><strong>Deactivate Model (OFF):</strong> Switches back to using the original saved model (fallback)</li>
+                    <li><strong>Status Indicator:</strong> Shows current deployment state in real-time</li>
+                    <li><strong>Safe Operation:</strong> You can always revert to the fallback model without losing data</li>
+                </ul>
+                <p style="color: #FB8239; font-weight: 600; margin-top: 15px;">
+                    Note: Always test your model metrics before deploying to production!
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
     
     # Training History Section
     if st.session_state.training_history:
@@ -1142,7 +1424,7 @@ if not user_summary_df.empty:
         st.markdown(f"""
             <div style="background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 15px; border-radius: 10px; text-align: center;">
                 <h3 style="color: white; margin: 0; font-size: 24px;">{avg_audio:.1f}</h3>
-                <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0 0; font-size: 14px;">Avg per User</p>
+                <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0 0; font-size: 14px;">Avg. per User</p>
             </div>
         """, unsafe_allow_html=True)
     
@@ -1151,7 +1433,7 @@ if not user_summary_df.empty:
         st.markdown(f"""
             <div style="background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 15px; border-radius: 10px; text-align: center;">
                 <h3 style="color: white; margin: 0; font-size: 24px;">{max_audio:,}</h3>
-                <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0 0; font-size: 14px;">Max by User</p>
+                <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0 0; font-size: 14px;">Max. Audio of single User</p>
             </div>
         """, unsafe_allow_html=True)
     
@@ -1229,6 +1511,120 @@ if predictions:
     )
 else:
     st.info("No predictions available yet.")
+
+# Audio Download Section
+st.markdown("<br><br>", unsafe_allow_html=True)
+st.markdown("<h2>Download Audio Files</h2>", unsafe_allow_html=True)
+st.markdown("<p style='color: #666; font-size: 16px;'>Download all uploaded audio files organized by predicted labels</p>", unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
+
+if predictions:
+    # Display summary of available audio files
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("""
+            <div style="background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); 
+                        padding: 20px; border-radius: 10px; text-align: center;">
+                <h3 style="color: white; margin: 0; font-size: 32px;">{}</h3>
+                <p style="color: white; margin: 5px 0 0 0; font-size: 14px;">Total Audio Files</p>
+            </div>
+        """.format(len(predictions)), unsafe_allow_html=True)
+    
+    with col2:
+        unique_labels = len(set(p.get('predicted_label', 'Unknown') for p in predictions))
+        st.markdown("""
+            <div style="background: linear-gradient(135deg, #10B981 0%, #059669 100%); 
+                        padding: 20px; border-radius: 10px; text-align: center;">
+                <h3 style="color: white; margin: 0; font-size: 32px;">{}</h3>
+                <p style="color: white; margin: 5px 0 0 0; font-size: 14px;">Different Labels</p>
+            </div>
+        """.format(unique_labels), unsafe_allow_html=True)
+    
+    with col3:
+        unique_users = len(set(p.get('username', 'Unknown') for p in predictions))
+        st.markdown("""
+            <div style="background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%); 
+                        padding: 20px; border-radius: 10px; text-align: center;">
+                <h3 style="color: white; margin: 0; font-size: 32px;">{}</h3>
+                <p style="color: white; margin: 5px 0 0 0; font-size: 14px;">Active Users</p>
+            </div>
+        """.format(unique_users), unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Show breakdown by label
+    label_counts = {}
+    for pred in predictions:
+        label = pred.get('predicted_label', 'Unknown')
+        label_counts[label] = label_counts.get(label, 0) + 1
+    
+    st.markdown("<h3>Files by Label</h3>", unsafe_allow_html=True)
+    breakdown_df = pd.DataFrame([
+        {"Label": label.replace('_', ' '), "Count": count} 
+        for label, count in sorted(label_counts.items(), key=lambda x: x[1], reverse=True)
+    ])
+    
+    col_table, col_chart = st.columns([1, 1])
+    
+    with col_table:
+        st.dataframe(
+            breakdown_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Label": st.column_config.TextColumn("Predicted Label", width="medium"),
+                "Count": st.column_config.NumberColumn("Audio Files", width="small")
+            }
+        )
+    
+    with col_chart:
+        fig = px.pie(
+            breakdown_df, 
+            values='Count', 
+            names='Label',
+            color_discrete_sequence=px.colors.sequential.Oranges_r
+        )
+        fig.update_traces(textposition='inside', textinfo='percent+label')
+        fig.update_layout(
+            showlegend=False,
+            height=300,
+            margin=dict(t=0, b=0, l=0, r=0)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Download button
+    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+    
+    with col_btn2:
+        if st.button("Download All Audio Files (ZIP)", use_container_width=True, type="primary"):
+            with st.spinner("Preparing ZIP file... This may take a few minutes depending on the number of files."):
+                try:
+                    zip_data = download_audio_files_by_label(predictions)
+                    
+                    # Generate filename with timestamp
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    filename = f"neoparental_audio_files_{timestamp}.zip"
+                    
+                    # Direct download
+                    st.download_button(
+                        label="Click here to download",
+                        data=zip_data,
+                        file_name=filename,
+                        mime="application/zip",
+                        use_container_width=True,
+                        key="download_zip"
+                    )
+                    
+                    st.success("Downloaded Successfully!")
+                    
+                except Exception as e:
+                    st.error(f"Error creating ZIP file: {str(e)}")
+    
+else:
+    st.info("No audio files available for download.")
 
 # Footer
 st.markdown("<br><br>", unsafe_allow_html=True)

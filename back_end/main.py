@@ -92,11 +92,13 @@ except Exception as e:
 
 # ML Model paths
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_DIR = BASE_DIR / "Model" / "saved_model"
-MODEL_PATH = MODEL_DIR / "best_model.joblib"
+MODEL_DIR = BASE_DIR / "Model" / "saved_model"  # Original/fallback model directory
+ADMIN_MODEL_DIR = BASE_DIR / "Model" / "admin_saved_model"  # Admin deployed model directory
+MODEL_PATH = MODEL_DIR / "best_model.joblib"  # Original/fallback model
 TEMP_DIR = BASE_DIR / "temp"
 
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
+ADMIN_MODEL_DIR.mkdir(parents=True, exist_ok=True)
 TEMP_DIR.mkdir(exist_ok=True)
 
 # === MongoDB connection ===
@@ -109,6 +111,7 @@ try:
     db = client[DB_NAME]
     users_collection = db["users"]
     predictions_collection = db["predictions"]
+    model_deployments_collection = db["model_deployments"]
     logger.info(" MongoDB connection initialized")
 except Exception as e:
     logger.error(f" MongoDB connection failed: {e}")
@@ -148,6 +151,11 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 ml_model = None
 model_type = None
 model_metadata = {}
+
+# Deployed model tracking
+deployed_model_path = None
+deployed_model = None
+deployment_status = "off"  # "on" or "off"
 
 # Class labels for predictions
 class_labels = {
@@ -631,8 +639,14 @@ async def predict_audio(
     """
     Upload audio file, predict baby cry category, and store in Cloudinary.
     Requires authentication - only logged-in users can upload.
+    Uses deployed model if active, otherwise uses saved model.
     """
-    if ml_model is None:
+    global deployment_status, deployed_model, ml_model
+    
+    # Determine which model to use
+    active_model = deployed_model if deployment_status == "on" and deployed_model is not None else ml_model
+    
+    if active_model is None:
         raise HTTPException(status_code=503, detail="Model not loaded.")
     if not validate_audio_file(file):
         raise HTTPException(status_code=400, detail="Invalid audio format. Allowed: .wav, .mp3, .m4a, .flac, .ogg, .aac")
@@ -651,15 +665,15 @@ async def predict_audio(
         # Extract features for prediction
         features = extract_audio_features(temp_file)
 
-        # Make prediction
+        # Make prediction using the active model
         if model_type == "classifier":
-            probs = ml_model.predict_proba(features)[0]
+            probs = active_model.predict_proba(features)[0]
             pred_index = int(np.argmax(probs))
             confidence = float(np.max(probs))
             prediction_value = pred_index
             predicted_label = class_labels.get(pred_index, None)
         else:
-            prediction_value = float(ml_model.predict(features)[0])
+            prediction_value = float(active_model.predict(features)[0])
             predicted_label = class_labels.get(round(prediction_value), None)
             confidence = max(0.0, 1.0 - abs(prediction_value - round(prediction_value)))
 
@@ -933,8 +947,8 @@ async def retrain_model(
 @app.post("/admin/save_model")
 async def save_trained_model(current_user: dict = Depends(get_current_user)):
     """
-    Save the temporarily stored trained model to disk.
-    This replaces the current production model.
+    Save the temporarily stored trained model to admin directory.
+    This saves the model to admin_saved_model folder, separate from the original model.
     Only accessible by admin users.
     """
     global temp_trained_model, temp_label_encoder
@@ -954,23 +968,22 @@ async def save_trained_model(current_user: dict = Depends(get_current_user)):
         )
     
     try:
-        # Create backup of existing model
         import shutil
         from datetime import datetime
         
-        if MODEL_PATH.exists():
-            backup_path = MODEL_DIR / f"best_model_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.joblib"
-            shutil.copy(MODEL_PATH, backup_path)
-            logger.info(f"Created backup of existing model at {backup_path}")
+        # Create unique model name with timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        admin_model_name = f"admin_model_{timestamp}.joblib"
+        admin_model_path = ADMIN_MODEL_DIR / admin_model_name
         
-        # Save the new model
-        joblib.dump(temp_trained_model, MODEL_PATH)
+        # Save the new model to admin directory
+        joblib.dump(temp_trained_model, admin_model_path)
         
         # Save the label encoder
-        encoder_path = MODEL_DIR / "label_encoder.joblib"
+        encoder_path = ADMIN_MODEL_DIR / f"label_encoder_{timestamp}.joblib"
         joblib.dump(temp_label_encoder, encoder_path)
         
-        logger.info(f"New model saved successfully at {MODEL_PATH}")
+        logger.info(f"New admin model saved successfully at {admin_model_path}")
         
         # Clear temporary storage
         temp_trained_model = None
@@ -978,7 +991,9 @@ async def save_trained_model(current_user: dict = Depends(get_current_user)):
         
         return JSONResponse(content={
             "status": "success",
-            "message": "Model saved successfully and is now active",
+            "message": "Model saved successfully to admin directory",
+            "model_path": str(admin_model_path),
+            "model_name": admin_model_name,
             "timestamp": datetime.now().isoformat()
         })
         
@@ -987,6 +1002,160 @@ async def save_trained_model(current_user: dict = Depends(get_current_user)):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to save model: {str(e)}"
+        )
+
+@app.post("/admin/deploy_model")
+async def deploy_model(current_user: dict = Depends(get_current_user)):
+    """
+    Deploy the latest admin saved model to production.
+    This activates the admin model for use in predictions.
+    Only accessible by admin users.
+    """
+    global deployed_model, deployed_model_path, deployment_status
+    
+    # Check admin permission
+    if current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    
+    try:
+        # Find the latest admin model
+        admin_models = list(ADMIN_MODEL_DIR.glob("admin_model_*.joblib"))
+        
+        if not admin_models:
+            raise HTTPException(
+                status_code=400,
+                detail="No admin model found. Please train and save a model first."
+            )
+        
+        # Get the most recent model (sorted by filename which includes timestamp)
+        latest_admin_model = sorted(admin_models)[-1]
+        
+        # Load the model to be deployed
+        deployed_model = joblib.load(latest_admin_model)
+        deployed_model_path = str(latest_admin_model)
+        deployment_status = "on"
+        
+        # Record deployment in database
+        deployment_doc = {
+            "model_path": str(latest_admin_model),
+            "model_name": latest_admin_model.name,
+            "deployed_by": current_user["username"],
+            "deployed_at": datetime.utcnow(),
+            "status": "active"
+        }
+        await model_deployments_collection.insert_one(deployment_doc)
+        
+        logger.info(f"Admin model deployed successfully by {current_user['username']}: {latest_admin_model.name}")
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": f"Admin model '{latest_admin_model.name}' deployed successfully and is now active",
+            "model_path": str(latest_admin_model),
+            "model_name": latest_admin_model.name,
+            "deployed_at": datetime.utcnow().isoformat(),
+            "deployment_status": "on"
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deploying model: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to deploy model: {str(e)}"
+        )
+
+@app.get("/admin/deployment_status")
+async def get_deployment_status(current_user: dict = Depends(get_current_user)):
+    """
+    Get the current deployment status of the model.
+    Returns "on" if deployed admin model is active, "off" if using saved model.
+    Only accessible by admin users.
+    """
+    global deployment_status, deployed_model_path
+    
+    # Check admin permission
+    if current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    
+    try:
+        # Get the latest deployment from database
+        latest_deployment = await model_deployments_collection.find_one(
+            sort=[("deployed_at", -1)]
+        )
+        
+        # Determine current model info
+        if deployment_status == "on" and deployed_model_path:
+            current_model_path = deployed_model_path
+            current_model_name = Path(deployed_model_path).name
+            model_type = "Admin Deployed Model"
+        else:
+            current_model_path = str(MODEL_PATH)
+            current_model_name = MODEL_PATH.name
+            model_type = "Saved Model (Fallback)"
+        
+        return JSONResponse(content={
+            "deployment_status": deployment_status,
+            "current_model_path": current_model_path,
+            "current_model_name": current_model_name,
+            "model_type": model_type,
+            "saved_model_path": str(MODEL_PATH),
+            "admin_model_dir": str(ADMIN_MODEL_DIR),
+            "using_saved_model": deployment_status == "off",
+            "latest_deployment": {
+                "model_name": latest_deployment.get("model_name") if latest_deployment else None,
+                "deployed_by": latest_deployment.get("deployed_by") if latest_deployment else None,
+                "deployed_at": latest_deployment.get("deployed_at").isoformat() if latest_deployment and latest_deployment.get("deployed_at") else None,
+            } if latest_deployment else None
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting deployment status: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get deployment status: {str(e)}"
+        )
+
+@app.post("/admin/deactivate_model")
+async def deactivate_model(current_user: dict = Depends(get_current_user)):
+    """
+    Deactivate the deployed model.
+    System will fall back to using the saved model.
+    Only accessible by admin users.
+    """
+    global deployed_model, deployed_model_path, deployment_status
+    
+    # Check admin permission
+    if current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    
+    try:
+        deployed_model = None
+        deployed_model_path = None
+        deployment_status = "off"
+        
+        logger.info(f"Model deactivated by {current_user['username']}")
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": "Deployed model deactivated. System will use saved model for predictions.",
+            "deployment_status": "off"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error deactivating model: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to deactivate model: {str(e)}"
         )
 
 # === Error Handler ===
