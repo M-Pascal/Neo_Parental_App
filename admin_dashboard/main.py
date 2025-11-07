@@ -9,7 +9,7 @@ import base64
 from pathlib import Path
 
 # Configuration
-API_BASE_URL = "http://localhost:8000"  # Change this to your API URL
+API_BASE_URL = "http://localhost:8000"  # Our FastAPI URL
 
 # Helper function to load and encode images
 def get_icon_html(icon_name: str, size: int = 20, color: str = None) -> str:
@@ -639,7 +639,7 @@ with st.sidebar:
     # User info card
     st.markdown(f"""
         <div style="background-color: rgba(255,255,255,0.15); padding: 15px; border-radius: 10px; margin-bottom: 20px;">
-            <div style="font-size: 32px; text-align: center; margin-bottom: 10px;">👤</div>
+            <div style="font-size: 34px; text-align: center; margin-bottom: 10px;">👤</div>
             <p style="color: white; font-weight: 600; text-align: center; margin: 5px 0; font-size: 16px;">
                 {st.session_state.user['username']}
             </p>
@@ -717,16 +717,16 @@ if st.session_state.current_page == 'retrain':
     # Instructions
     st.markdown("""
         <div style="background: linear-gradient(135deg, #FFF5F0, #FFE5DC); padding: 20px; border-radius: 15px; border: 2px solid #FFE5DC; margin-bottom: 30px;">
-            <h3 style="color: #D64612; margin-top: 0;">📋 Instructions</h3>
+            <h3 style="color: #D64612; margin-top: 0;">📋 Instructions:</h3>
             <ol style="color: #666; line-height: 1.8;">
                 <li>Prepare your training data as a <strong>ZIP file</strong></li>
                 <li>The ZIP should contain audio files organized in folders by label:
                     <ul>
-                        <li>Belly_pain/</li>
-                        <li>Burping/</li>
-                        <li>Discomfort/</li>
-                        <li>Hungry/</li>
-                        <li>Tired_Sleepy/</li>
+                        <li>/Belly_pain/</li>
+                        <li>/Burping/</li>
+                        <li>/Discomfort/</li>
+                        <li>/Hungry/</li>
+                        <li>/Tired_Sleepy/</li>
                     </ul>
                 </li>
                 <li>Each folder should contain WAV audio files for that category</li>
@@ -737,7 +737,7 @@ if st.session_state.current_page == 'retrain':
     """, unsafe_allow_html=True)
     
     # File upload section
-    st.markdown("<h2>📤 Upload Training Data</h2>", unsafe_allow_html=True)
+    st.markdown("<h2>Upload Training Data</h2>", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     
     uploaded_file = st.file_uploader(
@@ -752,12 +752,12 @@ if st.session_state.current_page == 'retrain':
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("📁 File Name", uploaded_file.name)
+            st.metric("_File_Name", uploaded_file.name)
         with col2:
-            st.metric("📊 File Size", f"{file_size_mb:.2f} MB")
+            st.metric("_File_Size", f"{file_size_mb:.2f} MB")
         with col3:
-            st.metric("📝 File Type", uploaded_file.type)
-        
+            st.metric("_File_Type", uploaded_file.type)
+
         st.markdown("<br>", unsafe_allow_html=True)
         
         # Start training button
@@ -765,18 +765,18 @@ if st.session_state.current_page == 'retrain':
             # Reset file pointer to beginning
             uploaded_file.seek(0)
             
-            with st.spinner("🔄 Training model... This may take several minutes..."):
+            with st.spinner("Training model...  This may take several minutes..."):
                 # Call the retrain function
                 result = retrain_model(uploaded_file)
                 
                 if result["status"] == "success":
-                    st.success(f"✅ {result['message']}")
+                    st.success(f" {result['message']}")
                     
                     # Store in session state for review
                     st.session_state.last_training_result = result
                     
                     # Display metrics
-                    st.markdown("<br><h2>📊 Model Evaluation Metrics</h2>", unsafe_allow_html=True)
+                    st.markdown("<br><h2> Model Evaluation Metrics</h2>", unsafe_allow_html=True)
                     st.markdown("<br>", unsafe_allow_html=True)
                     
                     # Main metrics
@@ -785,32 +785,32 @@ if st.session_state.current_page == 'retrain':
                     # Note: st.metric() doesn't support HTML, so we use emojis for now
                     with metric_col1:
                         st.metric(
-                            label="🎯 Accuracy",
+                            label=" Accuracy",
                             value=f"{result['metrics']['accuracy']:.1%}"
                         )
                     
                     with metric_col2:
                         st.metric(
-                            label="📊 Precision",
+                            label=" Precision",
                             value=f"{result['metrics']['precision']:.1%}"
                         )
                     
                     with metric_col3:
                         st.metric(
-                            label="🔍 Recall",
+                            label=" Recall",
                             value=f"{result['metrics']['recall']:.1%}"
                         )
                     
                     with metric_col4:
                         st.metric(
-                            label="⚖️ F1 Score",
+                            label=" F1 Score",
                             value=f"{result['metrics']['f1_score']:.1%}"
                         )
                     
                     with metric_col5:
                         roc_auc = result['metrics'].get('roc_auc', 'N/A')
                         st.metric(
-                            label="📈 ROC-AUC",
+                            label=" ROC-AUC",
                             value=f"{roc_auc:.3f}" if isinstance(roc_auc, (int, float)) else roc_auc
                         )
                     
@@ -819,7 +819,7 @@ if st.session_state.current_page == 'retrain':
                     # Metrics interpretation
                     st.markdown("""
                         <div style="background: linear-gradient(135deg, #E8F5E9, #C8E6C9); padding: 20px; border-radius: 15px; border-left: 5px solid #4CAF50; margin-bottom: 20px;">
-                            <h4 style="color: #2E7D32; margin-top: 0;">📈 Metrics Interpretation</h4>
+                            <h4 style="color: #2E7D32; margin-top: 0;"> Metrics Interpretation</h4>
                             <ul style="color: #1B5E20; line-height: 1.8; margin-bottom: 0;">
                                 <li><strong>Accuracy:</strong> Overall correctness of predictions</li>
                                 <li><strong>Precision:</strong> How many predicted labels were correct</li>
@@ -833,7 +833,7 @@ if st.session_state.current_page == 'retrain':
                     st.markdown("<br>", unsafe_allow_html=True)
                     
                     # Model decision section
-                    st.markdown("<h2>� Model Management</h2>", unsafe_allow_html=True)
+                    st.markdown("<h2> Model Management</h2>", unsafe_allow_html=True)
                     st.markdown("<p style='color: #666; font-size: 16px;'>Review the metrics above and decide whether to save or discard this model</p>", unsafe_allow_html=True)
                     st.markdown("<br>", unsafe_allow_html=True)
                     
@@ -845,14 +845,14 @@ if st.session_state.current_page == 'retrain':
                                 save_result = save_trained_model()
                                 
                                 if save_result["status"] == "success":
-                                    st.success(f"✅ {save_result['message']}")
+                                    st.success(f" {save_result['message']}")
                                     
                                     # Add to training history
                                     result['saved'] = True
                                     st.session_state.training_history.append(result)
                                     
                                     st.balloons()
-                                    st.info("🔄 The new model is now active and will be used for predictions!")
+                                    st.info("⟳ The new model is now active and will be used for predictions!")
                                 else:
                                     st.error(f" {save_result['message']}")
                     
@@ -866,14 +866,14 @@ if st.session_state.current_page == 'retrain':
                     with col3:
                         # Show comparison with previous models
                         if st.session_state.training_history:
-                            with st.expander("📊 Compare with History"):
+                            with st.expander(" Compare with History"):
                                 history_metrics = []
                                 for idx, hist in enumerate(st.session_state.training_history[-5:], 1):
                                     history_metrics.append({
                                         'Run': f"#{len(st.session_state.training_history) - 5 + idx}",
                                         'Accuracy': f"{hist['metrics']['accuracy']:.1%}",
                                         'F1': f"{hist['metrics']['f1_score']:.1%}",
-                                        'Saved': '✅' if hist.get('saved', False) else ''
+                                        'Saved': 'OK' if hist.get('saved', False) else ''
                                     })
                                 
                                 if history_metrics:
@@ -891,7 +891,7 @@ if st.session_state.current_page == 'retrain':
     # Training History Section
     if st.session_state.training_history:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown("<h2>📚 Training History</h2>", unsafe_allow_html=True)
+        st.markdown("<h2> Training History</h2>", unsafe_allow_html=True)
         st.markdown("<p style='color: #666; font-size: 16px;'>View all previous training sessions and their results</p>", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -916,14 +916,14 @@ if st.session_state.current_page == 'retrain':
             use_container_width=True,
             hide_index=True,
             column_config={
-                "Run": st.column_config.TextColumn("🔢 Run", width="small"),
-                "Timestamp": st.column_config.TextColumn("📅 Timestamp", width="medium"),
-                "Accuracy": st.column_config.TextColumn("🎯 Accuracy", width="small"),
-                "Precision": st.column_config.TextColumn("📊 Precision", width="small"),
-                "Recall": st.column_config.TextColumn("🔍 Recall", width="small"),
-                "F1 Score": st.column_config.TextColumn("⚖️ F1", width="small"),
-                "ROC-AUC": st.column_config.TextColumn("📈 ROC-AUC", width="small"),
-                "Saved": st.column_config.TextColumn("💾 Saved", width="small"),
+                "Run": st.column_config.TextColumn("Run", width="small"),
+                "Timestamp": st.column_config.TextColumn("Timestamp", width="medium"),
+                "Accuracy": st.column_config.TextColumn("Accuracy", width="small"),
+                "Precision": st.column_config.TextColumn("Precision", width="small"),
+                "Recall": st.column_config.TextColumn("Recall", width="small"),
+                "F1 Score": st.column_config.TextColumn("F1", width="small"),
+                "ROC-AUC": st.column_config.TextColumn("ROC-AUC", width="small"),
+                "Saved": st.column_config.TextColumn("Saved", width="small"),
             }
         )
         
@@ -931,7 +931,7 @@ if st.session_state.current_page == 'retrain':
         st.markdown("<br>", unsafe_allow_html=True)
         csv_data = history_df.to_csv(index=False)
         st.download_button(
-            label="📥 Download Training History (CSV)",
+            label="Download Training History (CSV)",
             data=csv_data,
             file_name=f"training_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv",
@@ -958,39 +958,39 @@ with st.spinner(" Loading dashboard data..."):
     }
 
 # Display metrics
-st.markdown("<h2>📊 Overview Metrics</h2>", unsafe_allow_html=True)
+st.markdown("<h2>Overview Metrics</h2>", unsafe_allow_html=True)
 st.markdown("<br>", unsafe_allow_html=True)
 
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     st.metric(
-        label="🎵 Total Audio Files",
+        label="Total Audio Files",
         value=f"{metrics['total_audio']:,}"
     )
 
 with col2:
     st.metric(
-        label="👥 Total Users",
+        label="Total Users",
         value=f"{len(users):,}"
     )
 
 with col3:
     st.metric(
-        label="🎯 Average Confidence",
+        label="Average Confidence",
         value=f"{metrics['avg_confidence']:.1f}%"
     )
 
 with col4:
     st.metric(
-        label="🏷️ Unique Labels",
+        label="Unique Labels",
         value=len(metrics["by_label"])
     )
 
 st.markdown("<br><br>", unsafe_allow_html=True)
 
 # Audio counts by label
-st.markdown("<h2>🎵 Audio Distribution by Label</h2>", unsafe_allow_html=True)
+st.markdown("<h2> Audio_Distribution by Label</h2>", unsafe_allow_html=True)
 st.markdown("<br>", unsafe_allow_html=True)
 
 if metrics["by_label"]:
@@ -1011,7 +1011,7 @@ if metrics["by_label"]:
     st.markdown("<br>", unsafe_allow_html=True)
     
     # Visualization
-    st.markdown("<h3>� Visual Analytics</h3>", unsafe_allow_html=True)
+    st.markdown("<h3> Visual_Analytics</h3>", unsafe_allow_html=True)
     
     chart_col1, chart_col2 = st.columns(2)
     
@@ -1084,7 +1084,7 @@ else:
     st.info("No label data available yet.")
 
 # User summary table
-st.markdown("<h2>👥 User Summary & Analysis</h2>", unsafe_allow_html=True)
+st.markdown("<h2>User Summary & Analysis</h2>", unsafe_allow_html=True)
 st.markdown("<br>", unsafe_allow_html=True)
 
 user_summary_df = create_user_summary(users, predictions)
@@ -1093,12 +1093,12 @@ if not user_summary_df.empty:
     # Add search and filter with enhanced UI
     col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
-        search = st.text_input("🔍 Search by name or email", "", placeholder="Type to search...")
+        search = st.text_input("Search by name or email", "", placeholder="Type to search...")
     with col2:
-        min_audio = st.number_input("📊 Min audio files", min_value=0, value=0)
+        min_audio = st.number_input("Min audio files", min_value=0, value=0)
     with col3:
         # Sort options
-        sort_by = st.selectbox("📑 Sort by", 
+        sort_by = st.selectbox("Sort by", 
             ["Total Audio", "Name", "Belly Pain", "Burping", "Discomfort", "Hungry", "Tired/Sleepy"],
             index=0
         )
@@ -1181,7 +1181,7 @@ if not user_summary_df.empty:
     # Download button with enhanced styling
     csv = filtered_df.to_csv(index=False)
     st.download_button(
-        label="📥 Download User Summary (CSV)",
+        label="Download User Summary (CSV)",
         data=csv,
         file_name=f"neoparental_user_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
         mime="text/csv",
@@ -1193,7 +1193,7 @@ else:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # Recent predictions
-st.markdown("<h2>🕐 Recent Predictions</h2>", unsafe_allow_html=True)
+st.markdown("<h2>Recent Predictions</h2>", unsafe_allow_html=True)
 st.markdown("<p style='color: #666; font-size: 16px;'>Latest 10 audio analysis results from all users</p>", unsafe_allow_html=True)
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1228,7 +1228,7 @@ if predictions:
         hide_index=True
     )
 else:
-    st.info("📭 No predictions available yet.")
+    st.info("No predictions available yet.")
 
 # Footer
 st.markdown("<br><br>", unsafe_allow_html=True)
