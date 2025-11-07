@@ -24,8 +24,9 @@ import cloudinary.uploader
 import cloudinary.api
 import warnings
 
-# Suppress sklearn version warning
+# Suppress sklearn warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
 
 # LOGGING CONFIGURATION
 logging.basicConfig(level=logging.INFO)
@@ -748,6 +749,245 @@ async def delete_my_prediction(prediction_id: str, current_user=Depends(get_curr
     # Delete from database
     await predictions_collection.delete_one({"_id": ObjectId(prediction_id)})
     return None
+
+# === Model Retraining Endpoints ===
+
+# Global variable to store the newly trained model temporarily
+temp_trained_model = None
+temp_label_encoder = None
+
+def extract_features_for_training(file_path):
+    """Extract features from audio file for model training"""
+    try:
+        y, sr = librosa.load(file_path, sr=16000)
+        n_fft = 1024
+        hop_length = 10 * 16
+        win_length = 25 * 16
+        n_mfcc = 40
+        n_mels = 128
+        n_bands = 7
+        fmin = 100
+
+        mfcc = np.mean(librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc).T, axis=0)
+        mel = np.mean(librosa.feature.melspectrogram(y=y, sr=sr, n_mels=n_mels).T, axis=0)
+        stft = np.abs(librosa.stft(y))
+        chroma = np.mean(librosa.feature.chroma_stft(S=stft, y=y, sr=sr).T, axis=0)
+        contrast = np.mean(librosa.feature.spectral_contrast(S=stft, y=y, sr=sr,
+                                                             n_bands=n_bands, fmin=fmin).T, axis=0)
+        tonnetz = np.mean(librosa.feature.tonnetz(y=y, sr=sr).T, axis=0)
+
+        features = np.concatenate((mfcc, chroma, mel, contrast, tonnetz))
+        return features
+    except Exception as e:
+        logger.error(f"Error processing {file_path}: {e}")
+        return None
+
+@app.post("/admin/retrain")
+async def retrain_model(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Retrain the model with a new dataset.
+    Upload a ZIP file containing labeled folders of audio files.
+    Only accessible by admin users.
+    """
+    import zipfile
+    import tempfile
+    import shutil
+    from sklearn.tree import DecisionTreeClassifier
+    from sklearn.preprocessing import LabelEncoder
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
+    from imblearn.over_sampling import RandomOverSampler
+    
+    # Check admin permission
+    if current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    
+    # Validate file type
+    if not file.filename.endswith(".zip"):
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload a ZIP file containing your dataset folders."
+        )
+    
+    # Create a temporary folder to extract ZIP
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        zip_path = os.path.join(tmp_dir, file.filename)
+
+        # Save uploaded ZIP
+        try:
+            with open(zip_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+        except Exception as e:
+            logger.error(f"Error saving uploaded file: {e}")
+            raise HTTPException(status_code=500, detail=f"Error saving uploaded file: {str(e)}")
+
+        # Extract ZIP contents
+        try:
+            with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                zip_ref.extractall(tmp_dir)
+        except zipfile.BadZipFile:
+            raise HTTPException(status_code=400, detail="Uploaded file is not a valid ZIP archive.")
+
+        # Assume the first extracted folder is the dataset root
+        subfolders = [os.path.join(tmp_dir, d) for d in os.listdir(tmp_dir)
+                      if os.path.isdir(os.path.join(tmp_dir, d))]
+        if not subfolders:
+            raise HTTPException(status_code=400, detail="No folders found inside the ZIP file.")
+        dataset_folder = subfolders[0]
+
+        # Load and process dataset
+        logger.info("Starting feature extraction from uploaded dataset...")
+        features, labels = [], []
+        processed_files = 0
+        
+        for label in os.listdir(dataset_folder):
+            label_dir = os.path.join(dataset_folder, label)
+            if os.path.isdir(label_dir):
+                logger.info(f"Processing label: {label}")
+                for file_name in os.listdir(label_dir):
+                    if file_name.endswith((".wav", ".mp3", ".flac")):
+                        file_path = os.path.join(label_dir, file_name)
+                        f = extract_features_for_training(file_path)
+                        if f is not None:
+                            features.append(f)
+                            labels.append(label)
+                            processed_files += 1
+
+        if not features:
+            raise HTTPException(
+                status_code=400,
+                detail="No valid audio files found in the uploaded dataset."
+            )
+        
+        logger.info(f"Extracted features from {processed_files} audio files")
+
+        X = np.array(features)
+        y = np.array(labels)
+
+        # Handle class imbalance
+        logger.info("Applying oversampling to handle class imbalance...")
+        oversampler = RandomOverSampler(random_state=42)
+        X_resampled, y_resampled = oversampler.fit_resample(X, y)
+
+        # Encode labels
+        le = LabelEncoder()
+        y_encoded = le.fit_transform(y_resampled)
+
+        # Split data
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_resampled, y_encoded, test_size=0.2, random_state=42
+        )
+        
+        logger.info(f"Training samples: {len(X_train)}, Test samples: {len(X_test)}")
+
+        # Train model
+        logger.info("Training Decision Tree Classifier...")
+        clf = DecisionTreeClassifier(random_state=42)
+        clf.fit(X_train, y_train)
+
+        # Predict and evaluate
+        logger.info("Evaluating model performance...")
+        y_pred = clf.predict(X_test)
+        accuracy = accuracy_score(y_test, y_pred)
+
+        # Compute macro average for precision, recall, f1
+        report = classification_report(y_test, y_pred, output_dict=True)
+        macro_avg = report["macro avg"]
+        precision = macro_avg["precision"]
+        recall = macro_avg["recall"]
+        f1_score = macro_avg["f1-score"]
+
+        # Compute ROC-AUC
+        try:
+            y_prob = clf.predict_proba(X_test)
+            roc_auc = roc_auc_score(y_test, y_prob, multi_class="ovr")
+        except Exception as e:
+            logger.warning(f"Could not compute ROC-AUC: {e}")
+            roc_auc = None
+
+        # Store the trained model and encoder temporarily
+        global temp_trained_model, temp_label_encoder
+        temp_trained_model = clf
+        temp_label_encoder = le
+        
+        logger.info(f"Training complete! Accuracy: {accuracy:.3f}, F1: {f1_score:.3f}")
+
+        response = {
+            "status": "Retrained successfully",
+            "accuracy": round(accuracy, 3),
+            "precision": round(precision, 3),
+            "recall": round(recall, 3),
+            "f1_score": round(f1_score, 3),
+            "roc_auc": round(roc_auc, 3) if roc_auc else "N/A",
+            "timestamp": datetime.now().isoformat()
+        }
+
+        return JSONResponse(content=response)
+
+@app.post("/admin/save_model")
+async def save_trained_model(current_user: dict = Depends(get_current_user)):
+    """
+    Save the temporarily stored trained model to disk.
+    This replaces the current production model.
+    Only accessible by admin users.
+    """
+    global temp_trained_model, temp_label_encoder
+    
+    # Check admin permission
+    if current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    
+    # Check if there's a model to save
+    if temp_trained_model is None or temp_label_encoder is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No trained model available. Please train a model first."
+        )
+    
+    try:
+        # Create backup of existing model
+        import shutil
+        from datetime import datetime
+        
+        if MODEL_PATH.exists():
+            backup_path = MODEL_DIR / f"best_model_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.joblib"
+            shutil.copy(MODEL_PATH, backup_path)
+            logger.info(f"Created backup of existing model at {backup_path}")
+        
+        # Save the new model
+        joblib.dump(temp_trained_model, MODEL_PATH)
+        
+        # Save the label encoder
+        encoder_path = MODEL_DIR / "label_encoder.joblib"
+        joblib.dump(temp_label_encoder, encoder_path)
+        
+        logger.info(f"New model saved successfully at {MODEL_PATH}")
+        
+        # Clear temporary storage
+        temp_trained_model = None
+        temp_label_encoder = None
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": "Model saved successfully and is now active",
+            "timestamp": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error saving model: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save model: {str(e)}"
+        )
 
 # === Error Handler ===
 @app.exception_handler(Exception)
