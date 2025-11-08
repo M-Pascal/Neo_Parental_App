@@ -16,6 +16,7 @@ class AppStrings {
   static const String loginTitle = 'Login into your account';
   static const String registerTitle = 'Create your account';
   static const String email = 'Email';
+  static const String username = 'Username';
   static const String password = 'Password';
   static const String confirmPassword = 'Confirm Password';
   static const String firstName = 'First Name';

@@ -17,6 +17,7 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _usernameController = TextEditingController();
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -28,6 +29,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
+    _usernameController.dispose();
     _firstNameController.dispose();
     _lastNameController.dispose();
     _emailController.dispose();
@@ -52,6 +54,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     // Sign up the user (no auto-login)
     final success = await authProvider.signUp(
+      username: _usernameController.text.trim(),
       email: _emailController.text.trim(),
       password: _passwordController.text,
       fullName: fullName,
@@ -202,6 +205,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 20),
+          CustomTextField(
+            controller: _usernameController,
+            labelText: AppStrings.username,
+            hintText: 'Choose a unique username',
+            prefixIcon: Icons.account_circle_outlined,
+            validator: (value) {
+              if (value?.isEmpty ?? true) return 'Required';
+              if (value!.length < 3)
+                return 'Username must be at least 3 characters';
+              if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(value)) {
+                return 'Only letters, numbers, and underscores allowed';
+              }
+              return null;
+            },
           ),
           const SizedBox(height: 20),
           CustomTextField(

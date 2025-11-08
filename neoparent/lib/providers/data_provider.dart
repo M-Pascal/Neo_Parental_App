@@ -29,10 +29,14 @@ class HistoryProvider with ChangeNotifier {
       _predictions = await _historyService.fetchMyPredictions(authToken);
 
       // Set account creation date based on earliest prediction
+      // If no predictions, use current date as account creation date
       if (_predictions.isNotEmpty) {
         _accountCreationDate = _predictions
             .map((p) => p.createdAt)
             .reduce((a, b) => a.isBefore(b) ? a : b);
+      } else {
+        // For new users with no predictions, use current date
+        _accountCreationDate = DateTime.now();
       }
 
       _isLoading = false;
@@ -46,8 +50,13 @@ class HistoryProvider with ChangeNotifier {
 
   /// Get history items from the last week based on account creation date
   List<HistoryItemModel> get thisWeekItems {
-    if (_predictions.isEmpty || _accountCreationDate == null) {
-      // Fallback to old behavior if no predictions
+    // If no predictions, return empty list (will show 0)
+    if (_predictions.isEmpty) {
+      return [];
+    }
+
+    if (_accountCreationDate == null) {
+      // Fallback to old behavior if account creation date is not set
       final weekAgo = DateTime.now().subtract(const Duration(days: 7));
       return _historyItems.where((item) => item.date.isAfter(weekAgo)).toList();
     }
@@ -81,14 +90,9 @@ class HistoryProvider with ChangeNotifier {
 
   /// Calculate average confidence from all predictions
   int get averageConfidence {
+    // If no predictions, return 0
     if (_predictions.isEmpty) {
-      // Fallback to old behavior
-      if (_historyItems.isEmpty) return 0;
-      final total = _historyItems.fold<int>(
-        0,
-        (sum, item) => sum + item.confidence,
-      );
-      return total ~/ _historyItems.length;
+      return 0;
     }
 
     double total = _predictions.fold(
@@ -100,18 +104,9 @@ class HistoryProvider with ChangeNotifier {
 
   /// Get most common analysis type from predictions
   String get mostCommonAnalysis {
+    // If no predictions, return 'None'
     if (_predictions.isEmpty) {
-      // Fallback to old behavior
-      if (_historyItems.isEmpty) return '';
-
-      final analysisCount = <String, int>{};
-      for (var item in _historyItems) {
-        analysisCount[item.analysis] = (analysisCount[item.analysis] ?? 0) + 1;
-      }
-
-      return analysisCount.entries
-          .reduce((a, b) => a.value > b.value ? a : b)
-          .key;
+      return 'None';
     }
 
     Map<String, int> analysisCount = {};

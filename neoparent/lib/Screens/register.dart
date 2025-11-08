@@ -654,6 +654,7 @@ class _RegisterPageState extends State<RegisterPage> {
       // Register user with all details
       String fullName = '$firstName $lastName';
       final success = await authProvider.signUp(
+        username: email,
         email: email,
         password: password,
         fullName: fullName,

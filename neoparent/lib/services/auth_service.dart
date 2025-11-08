@@ -17,6 +17,7 @@ class AuthService {
   /// Sign up with email and password - connects to MongoDB backend
   /// Returns user data but does NOT auto-login
   Future<UserModel> signUpWithEmailAndPassword({
+    required String username,
     required String email,
     required String password,
     required String fullName,
@@ -25,6 +26,10 @@ class AuthService {
   }) async {
     if (!isValidEmail(email)) {
       throw AuthException('Invalid email address');
+    }
+
+    if (username.isEmpty || username.length < 3) {
+      throw AuthException('Username must be at least 3 characters');
     }
 
     final passwordError = validatePassword(password);
@@ -39,9 +44,6 @@ class AuthService {
       final lastName = nameParts.length > 1
           ? nameParts.sublist(1).join(' ')
           : '';
-
-      // Create username from email
-      final username = email.split('@')[0];
 
       print('🚀 Attempting registration...');
       print('   URL: ${ApiConfig.registerUrl}');

@@ -138,6 +138,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildStatisticsSection(BuildContext context) {
     final historyProvider = context.watch<HistoryProvider>();
+    final avgConfidence = historyProvider.averageConfidence;
+    final confidenceDisplay = avgConfidence == 0 ? '-%' : '$avgConfidence%';
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -167,7 +169,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Expanded(
                 child: _buildStatCard(
                   title: AppStrings.avgConfidence,
-                  value: '${historyProvider.averageConfidence}%',
+                  value: confidenceDisplay,
                   icon: Icons.trending_up,
                   color: Colors.green,
                 ),
