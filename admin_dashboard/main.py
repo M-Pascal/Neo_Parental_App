@@ -13,7 +13,7 @@ import tempfile
 from urllib.request import urlopen
 
 # Configuration
-API_BASE_URL = "http://localhost:8000"  # Our FastAPI URL
+API_BASE_URL = "https://neo-parental-app-2.onrender.com"  # Our FastAPI URL
 
 # Helper function to load and encode images
 def get_icon_html(icon_name: str, size: int = 20, color: str = None) -> str:
@@ -463,7 +463,7 @@ def calculate_metrics(predictions: List[Dict]) -> Dict:
     }
 
 def create_user_summary(users: List[Dict], predictions: List[Dict]) -> pd.DataFrame:
-    """Create a summary DataFrame with user info and prediction counts by label"""
+    """Create a summary DataFrame with user ID and prediction counts by label (privacy-focused)"""
     if not users:
         return pd.DataFrame()
     
@@ -484,11 +484,9 @@ def create_user_summary(users: List[Dict], predictions: List[Dict]) -> pd.DataFr
         for label in labels:
             label_counts[label] = len(user_preds[user_preds['predicted_label'] == label]) if not user_preds.empty else 0
         
+        # Only store User ID and statistics - NO personal information
         user_data.append({
             'User ID': user_id,
-            'Name': f"{user['first_name']} {user['last_name']}",
-            'Phone': user['telephone'],
-            'Email': user['email'],
             'Total Audio': len(user_preds),
             'Belly Pain': label_counts['Belly_pain'],
             'Burping': label_counts['Burping'],
@@ -694,15 +692,15 @@ def download_audio_files_by_label(predictions_data: List[Dict]) -> bytes:
                         # Get file extension from original filename
                         file_ext = Path(original_filename).suffix or '.wav'
                         
-                        # Create unique filename: username_timestamp_original
-                        username = pred.get('username', 'user')
+                        # Create unique filename: userID_timestamp_original (privacy-focused)
+                        user_id = pred.get('user_id', 'unknown_user')
                         timestamp = pred.get('created_at', '')
                         if timestamp:
                             timestamp_str = pd.to_datetime(timestamp).strftime('%Y%m%d_%H%M%S')
                         else:
                             timestamp_str = f'{idx:04d}'
                         
-                        new_filename = f"{username}_{timestamp_str}_{original_filename}"
+                        new_filename = f"{user_id}_{timestamp_str}_{original_filename}"
                         
                         # Add to ZIP under label folder
                         file_path_in_zip = f"Audio/{folder_name}/{new_filename}"
@@ -1372,25 +1370,24 @@ st.markdown("<br>", unsafe_allow_html=True)
 user_summary_df = create_user_summary(users, predictions)
 
 if not user_summary_df.empty:
-    # Add search and filter with enhanced UI
+    # Add search and filter with enhanced UI (privacy-focused)
     col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
-        search = st.text_input("Search by name or email", "", placeholder="Type to search...")
+        search = st.text_input("Search by User ID", "", placeholder="Enter user ID...")
     with col2:
         min_audio = st.number_input("Min audio files", min_value=0, value=0)
     with col3:
-        # Sort options
+        # Sort options (removed personal info fields)
         sort_by = st.selectbox("Sort by", 
-            ["Total Audio", "Name", "Belly Pain", "Burping", "Discomfort", "Hungry", "Tired/Sleepy"],
+            ["Total Audio", "User ID", "Belly Pain", "Burping", "Discomfort", "Hungry", "Tired/Sleepy"],
             index=0
         )
     
-    # Filter data
+    # Filter data (only by User ID now)
     filtered_df = user_summary_df.copy()
     if search:
         filtered_df = filtered_df[
-            filtered_df['Name'].str.contains(search, case=False, na=False) |
-            filtered_df['Email'].str.contains(search, case=False, na=False)
+            filtered_df['User ID'].str.contains(search, case=False, na=False)
         ]
     if min_audio > 0:
         filtered_df = filtered_df[filtered_df['Total Audio'] >= min_audio]
@@ -1445,11 +1442,8 @@ if not user_summary_df.empty:
         use_container_width=True,
         height=400,
         column_config={
-            "User ID": st.column_config.TextColumn("User ID", width="small"),
-            "Name": st.column_config.TextColumn("Name", width="medium"),
-            "Phone": st.column_config.TextColumn("Phone", width="small"),
-            "Email": st.column_config.TextColumn("Email", width="medium"),
-            "Total Audio": st.column_config.NumberColumn("Total", width="small"),
+            "User ID": st.column_config.TextColumn("User ID", width="medium"),
+            "Total Audio": st.column_config.NumberColumn("Total Audio", width="small"),
             "Belly Pain": st.column_config.NumberColumn("Belly Pain", width="small"),
             "Burping": st.column_config.NumberColumn("Burping", width="small"),
             "Discomfort": st.column_config.NumberColumn("Discomfort", width="small"),
@@ -1497,11 +1491,11 @@ if predictions:
     )
     
     st.dataframe(
-        recent_df[['username', 'audio_filename', 'Label with Icon', 'confidence', 'created_at']],
+        recent_df[['user_id', 'audio_filename', 'Label with Icon', 'confidence', 'created_at']],
         use_container_width=True,
         height=400,
         column_config={
-            "username": st.column_config.TextColumn("User", width="medium"),
+            "user_id": st.column_config.TextColumn("User ID", width="medium"),
             "audio_filename": st.column_config.TextColumn("Audio File", width="large"),
             "Label with Icon": st.column_config.TextColumn("Predicted Label", width="medium"),
             "confidence": st.column_config.NumberColumn("Confidence (%)", format="%.1f", width="small"),
@@ -1542,7 +1536,7 @@ if predictions:
         """.format(unique_labels), unsafe_allow_html=True)
     
     with col3:
-        unique_users = len(set(p.get('username', 'Unknown') for p in predictions))
+        unique_users = len(set(p.get('user_id', 'Unknown') for p in predictions))
         st.markdown("""
             <div style="background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%); 
                         padding: 20px; border-radius: 10px; text-align: center;">
