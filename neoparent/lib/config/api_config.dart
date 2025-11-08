@@ -6,18 +6,18 @@ class ApiConfig {
   static String get baseUrl {
     if (kIsWeb) {
       // Web platform
-      return 'http://127.0.0.1:8000';
+      return 'https://neo-parental-app-2.onrender.com';
     } else if (Platform.isAndroid) {
       // Android Emulator uses 10.0.2.2 to access host machine
       // For physical Android device, use your computer's IP (e.g., 'http://192.168.1.x:8000')
-      return 'http://10.0.2.2:8000';
+      return 'https://neo-parental-app-2.onrender.com';
     } else if (Platform.isIOS) {
       // iOS Simulator can use localhost
       // For physical iOS device, use your computer's IP (e.g., 'http://192.168.1.x:8000')
-      return 'http://127.0.0.1:8000';
-    } else {
+        return 'https://neo-parental-app-2.onrender.com';
+      } else {
       // Windows, macOS, Linux desktop
-      return 'http://127.0.0.1:8000';
+      return 'https://neo-parental-app-2.onrender.com';
     }
   }
 
