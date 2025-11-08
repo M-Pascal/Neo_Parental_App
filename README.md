@@ -95,7 +95,7 @@ Neo_Parental_App/
   - predictions (audio analysis results)
   - model_deployments (ML model deployment tracking)
 
-### Machine Learning & AI
+### Machine Learning
 
 - **ML Framework**: scikit-learn 1.6.1
 - **Model Type**: DecisionTreeClassifier with RandomOverSampler
@@ -164,7 +164,6 @@ Neo_Parental_App/
 - **Python**: Version 3.9 or higher
 - **MongoDB**: Version 4.4 or higher (local or MongoDB Atlas cloud instance)
 - **Cloudinary Account**: For audio file storage (free tier available)
-- **OpenAI API Key**: For AI-powered features (optional)
 - **Operating System**: Windows 10/11, macOS 10.15+, or Linux (Ubuntu 20.04+)
 - **RAM**: Minimum 4GB (8GB recommended for model training)
 - **Storage**: 2GB free space for dependencies and models
