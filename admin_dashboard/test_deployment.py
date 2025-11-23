@@ -7,7 +7,7 @@ import json
 # Configuration
 API_BASE_URL = "https://neo-parental-app-2.onrender.com"
 ADMIN_USERNAME = "admin@neoparental.com"
-ADMIN_PASSWORD = "admin@123"
+ADMIN_PASSWORD = "YourSecureAdminPassword"
 
 def get_admin_token():
     """Login and get admin token"""

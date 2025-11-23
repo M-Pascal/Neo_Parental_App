@@ -769,7 +769,7 @@ if not st.session_state.token:
 # Main Dashboard
 st.markdown("""
     <div style="text-align: center; margin-bottom: 20px;">
-        <h1><span style="color: inherit; -webkit-text-fill-color: initial;">👶</span> NeoParental Admin Dashboard</h1>
+        <h1>NeoParental Admin Dashboard</h1>
         <p style="color: #FB8239; font-size: 18px; font-weight: 500;">Complete Analytics & User Management</p>
     </div>
 """, unsafe_allow_html=True)
