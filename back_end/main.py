@@ -386,6 +386,35 @@ async def startup_event():
         logger.error(f" Cloudinary configuration error: {e}")
 
 # === Health Check Routes ===
+@app.get("/")
+async def root():
+    """Root endpoint for health checks and basic info"""
+    try:
+        # Quick check without full database ping
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "NeoParental API is running",
+                "status": "online", 
+                "timestamp": datetime.now().isoformat(),
+                "endpoints": {
+                    "health": "/health",
+                    "docs": "/docs",
+                    "api": "/api/*"
+                }
+            }
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": str(e),
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+
+# === Health Check Routes ===
 @app.get("/health")
 async def health_check():
     try:
