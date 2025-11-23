@@ -5,9 +5,9 @@ import requests
 import json
 
 # Configuration
-API_BASE_URL = "http://localhost:8000"
-ADMIN_USERNAME = "admin"  # admin username
-ADMIN_PASSWORD = "your_password"  # admin password
+API_BASE_URL = "https://neo-parental-app-2.onrender.com"
+ADMIN_USERNAME = "admin@neoparental.com"
+ADMIN_PASSWORD = "admin@123"
 
 def get_admin_token():
     """Login and get admin token"""

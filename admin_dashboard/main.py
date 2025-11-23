@@ -13,7 +13,7 @@ import tempfile
 from urllib.request import urlopen
 
 # Configuration
-API_BASE_URL = "https://neo-parental-app-2.onrender.com"  # Our FastAPI URL
+API_BASE_URL = "http://127.0.0.1:8000"  # Our FastAPI URL
 
 # Helper function to load and encode images
 def get_icon_html(icon_name: str, size: int = 20, color: str = None) -> str:
@@ -277,6 +277,11 @@ st.markdown("""
     /* Spinner */
     .stSpinner > div {
         border-top-color: #D64612 !important;
+    }
+    
+    /* Spinner text */
+    .stSpinner > div > div {
+        color: #D64612 !important;
     }
     
     /* Success message */
@@ -720,7 +725,6 @@ if not st.session_state.token:
     # Create centered layout with background
     st.markdown("""
         <div style="text-align: center; padding: 20px 0;">
-            <h1 style="font-size: 64px; margin-bottom: 10px;">👶</h1>
             <h1 style="font-size: 42px; margin-bottom: 5px;">NeoParental</h1>
             <p style="color: #FB8239; font-size: 18px; font-weight: 600;">Admin Dashboard</p>
         </div>
@@ -1237,38 +1241,6 @@ with st.spinner(" Loading dashboard data..."):
         'confidence': metrics["avg_confidence"]
     }
 
-# Display metrics
-st.markdown("<h2>Overview Metrics</h2>", unsafe_allow_html=True)
-st.markdown("<br>", unsafe_allow_html=True)
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric(
-        label="Total Audio Files",
-        value=f"{metrics['total_audio']:,}"
-    )
-
-with col2:
-    st.metric(
-        label="Total Users",
-        value=f"{len(users):,}"
-    )
-
-with col3:
-    st.metric(
-        label="Average Confidence",
-        value=f"{metrics['avg_confidence']:.1f}%"
-    )
-
-with col4:
-    st.metric(
-        label="Unique Labels",
-        value=len(metrics["by_label"])
-    )
-
-st.markdown("<br><br>", unsafe_allow_html=True)
-
 # Audio counts by label
 st.markdown("<h2> Audio_Distribution by Label</h2>", unsafe_allow_html=True)
 st.markdown("<br>", unsafe_allow_html=True)
@@ -1619,6 +1591,177 @@ if predictions:
     
 else:
     st.info("No audio files available for download.")
+
+# User Account Deletion Section
+st.markdown("<br><br>", unsafe_allow_html=True)
+st.markdown("<h2>Delete User Account</h2>", unsafe_allow_html=True)
+st.markdown("<p style='color: #666; font-size: 16px;'>Permanently delete a user account and all associated data</p>", unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
+
+# Warning box
+st.markdown("""
+    <div style="background: linear-gradient(135deg, #FEE2E2, #FEF2F2); 
+                padding: 20px; border-radius: 15px; border-left: 5px solid #EF4444; margin-bottom: 30px;">
+        <h4 style="color: #DC2626; margin-top: 0;">Warning: Irreversible Action</h4>
+        <p style="color: #991B1B; line-height: 1.8; margin-bottom: 10px;">
+            Deleting a user account will permanently remove:
+        </p>
+        <ul style="color: #991B1B; line-height: 1.8; margin-bottom: 0;">
+            <li>User profile and account information</li>
+            <li>All prediction history records</li>
+            <li>All uploaded audio files from cloud storage</li>
+            <li>Any other data associated with this user</li>
+        </ul>
+        <p style="color: #DC2626; font-weight: 600; margin-top: 15px; margin-bottom: 0;">
+            This action cannot be undone. Please verify the User ID before proceeding.
+        </p>
+    </div>
+""", unsafe_allow_html=True)
+
+# User deletion form
+col_delete1, col_delete2, col_delete3 = st.columns([1, 2, 1])
+
+with col_delete2:
+    st.markdown("<h3>Enter User ID to Delete</h3>", unsafe_allow_html=True)
+    
+    # Input for user ID
+    delete_user_id = st.text_input(
+        "User ID",
+        placeholder="Enter the exact User ID",
+        help="Copy the User ID from the User Summary table above",
+        key="delete_user_id_input"
+    )
+    
+    # Show user details if ID is entered
+    if delete_user_id:
+        # Find user in the list
+        user_to_delete = None
+        for user in users:
+            if user['id'] == delete_user_id:
+                user_to_delete = user
+                break
+        
+        if user_to_delete:
+            # Get user's prediction count
+            user_predictions = [p for p in predictions if p['user_id'] == delete_user_id]
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("""
+                <div style="background: #F3F4F6; padding: 20px; border-radius: 10px; border: 2px solid #E5E7EB;">
+                    <h4 style="color: #374151; margin-top: 0;">User Details</h4>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Display user info
+            info_col1, info_col2 = st.columns(2)
+            
+            with info_col1:
+                st.markdown(f"""
+                    <div style="background: white; padding: 15px; border-radius: 8px; margin-top: 10px;">
+                        <p style="margin: 5px 0; color: #6B7280;"><strong>User ID:</strong></p>
+                        <p style="margin: 5px 0; color: #111827;">{user_to_delete['id']}</p>
+                        <p style="margin: 15px 0 5px 0; color: #6B7280;"><strong>Username:</strong></p>
+                        <p style="margin: 5px 0; color: #111827;">{user_to_delete['username']}</p>
+                        <p style="margin: 15px 0 5px 0; color: #6B7280;"><strong>Email:</strong></p>
+                        <p style="margin: 5px 0; color: #111827;">{user_to_delete['email']}</p>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            with info_col2:
+                st.markdown(f"""
+                    <div style="background: white; padding: 15px; border-radius: 8px; margin-top: 10px;">
+                        <p style="margin: 5px 0; color: #6B7280;"><strong>Full Name:</strong></p>
+                        <p style="margin: 5px 0; color: #111827;">{user_to_delete['first_name']} {user_to_delete['last_name']}</p>
+                        <p style="margin: 15px 0 5px 0; color: #6B7280;"><strong>Total Audio Files:</strong></p>
+                        <p style="margin: 5px 0; color: #DC2626; font-size: 24px; font-weight: 700;">{len(user_predictions)}</p>
+                        <p style="margin: 15px 0 5px 0; color: #6B7280;"><strong>Account Created:</strong></p>
+                        <p style="margin: 5px 0; color: #111827;">{pd.to_datetime(user_to_delete['created_at']).strftime('%Y-%m-%d %H:%M')}</p>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # Confirmation checkbox
+            confirm_delete = st.checkbox(
+                f"I confirm that I want to permanently delete user '{user_to_delete['username']}' and all associated data",
+                key="confirm_delete_checkbox"
+            )
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # Delete button
+            if confirm_delete:
+                col_btn1, col_btn2 = st.columns([1, 1])
+                
+                with col_btn1:
+                    if st.button("Delete Account", use_container_width=True, type="primary"):
+                        with st.spinner(f"Deleting user account and all associated data..."):
+                            try:
+                                # Call backend API to delete user
+                                response = requests.delete(
+                                    f"{API_BASE_URL}/admin/users/{delete_user_id}",
+                                    headers=get_headers(),
+                                    timeout=60
+                                )
+                                
+                                if response.status_code == 204:
+                                    st.success(f"User account '{user_to_delete['username']}' has been permanently deleted!")
+                                    st.markdown("""
+                                        <div style="background: #D1FAE5; padding: 15px; border-radius: 10px; 
+                                                    border-left: 4px solid #10B981; margin-top: 20px;">
+                                            <p style="color: #065F46; margin: 0;">
+                                                <strong>Deletion Complete:</strong>
+                                            </p>
+                                            <ul style="color: #065F46; margin: 10px 0 0 0;">
+                                                <li>User account removed</li>
+                                                <li>All prediction records deleted</li>
+                                                <li>All audio files removed from cloud storage</li>
+                                            </ul>
+                                        </div>
+                                    """, unsafe_allow_html=True)
+                                    
+                                    # Wait a moment then refresh
+                                    import time
+                                    time.sleep(2)
+                                    st.rerun()
+                                else:
+                                    st.error(f"Failed to delete user: {response.status_code} - {response.text}")
+                                    
+                            except requests.exceptions.Timeout:
+                                st.error("Request timeout. Please try again.")
+                            except Exception as e:
+                                st.error(f"Error deleting user: {str(e)}")
+                
+                with col_btn2:
+                    if st.button("Cancel", use_container_width=True):
+                        # Clear the session state and rerun to start over
+                        if 'delete_user_id_input' in st.session_state:
+                            del st.session_state['delete_user_id_input']
+                        if 'confirm_delete_checkbox' in st.session_state:
+                            del st.session_state['confirm_delete_checkbox']
+                        st.rerun()
+            else:
+                col_btn1, col_btn2 = st.columns([1, 1])
+                with col_btn1:
+                    st.button("Delete Account", use_container_width=True, disabled=True, type="primary", 
+                             help="Please confirm the deletion by checking the box above")
+                with col_btn2:
+                    if st.button("Cancel", use_container_width=True, key="cancel_btn_disabled"):
+                        # Clear the session state and rerun to start over
+                        if 'delete_user_id_input' in st.session_state:
+                            del st.session_state['delete_user_id_input']
+                        if 'confirm_delete_checkbox' in st.session_state:
+                            del st.session_state['confirm_delete_checkbox']
+                        st.rerun()
+        else:
+            st.warning(f"No user found with ID: {delete_user_id}")
+            st.info("Please verify the User ID from the User Summary table above")
+    else:
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+        with col_btn2:
+            if st.button("Proceed", use_container_width=True, type="primary"):
+                st.warning("Please enter a valid User ID first")
+                st.info("Copy the User ID from the User Summary table above and enter it in the field")
 
 # Footer
 st.markdown("<br><br>", unsafe_allow_html=True)
