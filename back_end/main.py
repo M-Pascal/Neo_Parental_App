@@ -322,6 +322,7 @@ class PredictionResponse(BaseModel):
     cloudinary_public_id: str
     processing_time: float
     timestamp: str
+    recommendation: Optional[str] = None
 
 class PredictionHistory(BaseModel):
     id: str
@@ -333,6 +334,7 @@ class PredictionHistory(BaseModel):
     prediction_value: float
     predicted_label: Optional[str]
     confidence: Optional[float]
+    recommendation: Optional[str] = None
     created_at: datetime
 
 class HealthResponse(BaseModel):
@@ -663,6 +665,7 @@ def chat_endpoint(data: Message, current_user=Depends(get_current_user)):
 async def predict_audio(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    recommendation: Optional[str] = None,
     current_user=Depends(get_current_user)
 ):
     """
@@ -724,6 +727,7 @@ async def predict_audio(
             "prediction_value": prediction_value,
             "predicted_label": predicted_label,
             "confidence": round(confidence * 100, 2),
+            "recommendation": recommendation,
             "created_at": datetime.utcnow()
         }
         result = await predictions_collection.insert_one(prediction_doc)
@@ -737,7 +741,8 @@ async def predict_audio(
             audio_url=cloudinary_result.get("secure_url"),
             cloudinary_public_id=cloudinary_result.get("public_id"),
             processing_time=(datetime.now() - start_time).total_seconds(),
-            timestamp=datetime.now().isoformat()
+            timestamp=datetime.now().isoformat(),
+            recommendation=recommendation
         )
 
     except HTTPException:
@@ -764,6 +769,7 @@ async def get_my_predictions(current_user=Depends(get_current_user)):
             prediction_value=p["prediction_value"],
             predicted_label=p.get("predicted_label"),
             confidence=p.get("confidence"),
+            recommendation=p.get("recommendation"),
             created_at=p["created_at"]
         ))
     return predictions
