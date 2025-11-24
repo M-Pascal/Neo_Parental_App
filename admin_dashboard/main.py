@@ -13,7 +13,7 @@ import tempfile
 from urllib.request import urlopen
 
 # Configuration
-API_BASE_URL = "http://127.0.0.1:8000"  # Our FastAPI URL
+API_BASE_URL = "https://neo-parental-app-2.onrender.com"  # Our FastAPI URL
 
 # Helper function to load and encode images
 def get_icon_html(icon_name: str, size: int = 20, color: str = None) -> str:
